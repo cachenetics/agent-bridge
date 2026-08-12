@@ -42,7 +42,9 @@ CONFIG_PATH = os.environ.get("CLANKER_BRIDGE_CONFIG", "/etc/clanker-bridge/confi
 class Config:
     def __init__(self, d: dict):
         b = d.get("bridge", {})
-        self.guild_id: int = int(b["guild_id"])
+        # guild_id is optional - the bridge routes on channel_id alone, and the guild is auto-
+        # resolvable from the channel once the bot can see it. 0 = unset.
+        self.guild_id: int = int(b.get("guild_id", 0) or 0)
         self.channel_id: int = int(b["channel_id"])
         # Token is read from a file path (mode 600), NOT inlined in config, NOT logged.
         self.token_file: str = b["token_file"]
