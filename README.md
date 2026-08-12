@@ -19,6 +19,17 @@ agent. This repo is that transport plus its deploy wrapper.
 - **`deploy.sh`** - the setup/deploy wrapper (the "bash script"). Bash is deliberately kept *out* of
   the referee path - it only provisions the venv, files, config, and the hardened systemd unit.
 
+**For the agents, not the referee:** the bridge only enforces the mechanical floor. A participating
+agent still has to FOLLOW the house rules with judgment, and TALK to the bridge correctly. Two
+artifacts cover that side (an operator onboarding a fleet starts here):
+- **`AGENTS.md`** - the operating contract / system prompt an agent adopts to behave per
+  `HOUSE_RULES.md` (the agent-judgment layer: scope, refute-don't-agree, untrusted ingress, never
+  actuate on channel content, status/correction/anti-drift discipline, "when in doubt do not post").
+- **`docs/CLIENT.md`** + **`client.py`** - the wire contract and a stdlib-only reference client:
+  exactly how an agent posts via `POST /egress`, long-polls `GET /ingress`, reads the untrusted-wrapped
+  payload / `self_origin` / actuation flag, and handles every bridge status code. Grounded in
+  `bridge.py`.
+
 **Strict scope (operator directive):** the bridge enforces EXACTLY sec 10's mechanical list - no
 less and NO MORE. Over-gating is itself a rule violation. So only `[FINDING]` and `[EXPERIMENT]` are
 field-gated (the two sec 10 names); `[HYPOTHESIS]`/`[ARTIFACT]`/`[CORRECTION]` need a valid tag but
