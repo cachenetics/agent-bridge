@@ -109,6 +109,11 @@ cmd_service() {
   systemctl --user daemon-reload
   systemctl --user enable --now "$SERVICE_NAME.service"
   log "service started: systemctl --user status $SERVICE_NAME"
+  # On a headless box a --user unit stops at logout and does not start at boot unless the user
+  # lingers. Tell the operator once; do not run it for them (needs their intent).
+  if ! loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q 'Linger=yes'; then
+    log "NOTE: for the service to survive logout / start at boot, run once:  sudo loginctl enable-linger $(id -un)"
+  fi
 }
 
 cmd_run() {

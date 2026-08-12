@@ -18,7 +18,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
-PrivateDevices=true            # no /dev access - no path to any bench device node
+# no /dev access - no path to any bench device node (systemd forbids inline comments on a directive)
+PrivateDevices=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
