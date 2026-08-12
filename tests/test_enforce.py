@@ -213,6 +213,21 @@ def test_halt_token_passes_untagged():
     assert enforce.check_egress(enforce.HALT_TOKEN).ok
 
 
+def test_halt_token_hyphen_variant_recognized():
+    # A: AI agents avoid the em-dash, so the natural hyphen form must still trip the halt.
+    hyphen = enforce.HALT_TOKEN.replace("—", "-")
+    assert hyphen != enforce.HALT_TOKEN            # it really is a different byte string
+    assert enforce.is_halt_token(hyphen)
+    assert enforce.check_egress(hyphen).ok          # accepted as an untagged control line
+    assert enforce.wrap_ingress("1", "x", hyphen).halt  # and recognized as halt on ingress
+
+
+def test_thread_closed_hyphen_variant_recognized():
+    hyphen = enforce.THREAD_CLOSED_PREFIX.replace("—", "-") + " learned: needs a cold boot"
+    assert enforce.is_thread_closed_line(hyphen)
+    assert enforce.check_egress(hyphen).ok
+
+
 def test_thread_closed_line_passes_untagged():
     assert enforce.check_egress(enforce.THREAD_CLOSED_PREFIX + " learned: fuse path needs a cold boot").ok
 

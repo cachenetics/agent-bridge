@@ -118,6 +118,14 @@ def test_halt_token_egress_halts_thread():
     assert status == 200 and b._thread_state(123).halted
 
 
+def test_hyphen_halt_token_egress_halts_thread():
+    # A: the hyphen variant an AI agent would naturally type must halt the thread too.
+    b, chan = _bridge()
+    hyphen = enforce.HALT_TOKEN.replace("—", "-")
+    status, _ = _resp(asyncio.run(b.handle_egress(FakeRequest({"body": hyphen}))))
+    assert status == 200 and b._thread_state(123).halted
+
+
 # --- valid post posts + fans out to siblings (pass-1 finding 5) --------------------------------
 def test_valid_finding_posts_and_fans_out():
     b, chan = _bridge()

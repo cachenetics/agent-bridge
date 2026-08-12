@@ -241,9 +241,9 @@ class Bridge:
         # Fan the post to co-located sibling agents (Discord drops our own echo in on_message).
         self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
         if res.tag is None:
-            if body.strip() == enforce.HALT_TOKEN:
-                st.halted = True                              # sec 6
-            elif body.strip().startswith(enforce.THREAD_CLOSED_PREFIX):
+            if enforce.is_halt_token(body):
+                st.halted = True                              # sec 6 (em-dash or hyphen form)
+            elif enforce.is_thread_closed_line(body):
                 st.closed = True                              # sec 7.2 - agent-declared close
         if st.observe(res.tag):
             await self._announce_closed(channel)

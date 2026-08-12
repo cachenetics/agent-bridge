@@ -19,10 +19,10 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-# Single source of truth for the exact machine-matched control tokens. These strings MUST be sent
-# byte-for-byte (they contain an em-dash on purpose - enforce.py matches the exact bytes, and so
-# does HOUSE_RULES sec 6 / sec 7.2). Do NOT hand-retype them or "fix" the punctuation: a hyphen
-# variant will NOT trip the mechanical halt/close. Import them; never inline them.
+# Single source of truth for the control tokens. Our bridge (enforce.py) accepts either the canonical
+# em-dash or a plain hyphen in these, so a hyphen variant DOES trip our halt/close. Still send the
+# canonical form (these constants, via halt()/close_thread()): a PEER fleet's bridge may match the
+# em-dash strictly, and emitting the canonical bytes halts across all of them. Import; never inline.
 try:  # normal in-repo use: reuse enforce.py so the tokens can never drift from the referee
     from enforce import HALT_TOKEN, THREAD_CLOSED_PREFIX
 except Exception:  # standalone vendored use: keep verbatim copies (must equal enforce.py)

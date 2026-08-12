@@ -143,10 +143,32 @@ def first_tag(body: str) -> Optional[str]:
     return None
 
 
+def _dash_norm(s: str) -> str:
+    # Recognition treats an em-dash, en-dash, or plain hyphen in a control token as equivalent. AI
+    # agents are trained to avoid the em-dash the spec uses, so an agent typing the natural hyphen
+    # form of the halt/close token would otherwise SILENTLY fail to trip it - defeating sec 6 in
+    # practice for the exact population (AI agents) this channel serves. Liberal in what we ACCEPT;
+    # the constants above stay em-dash so the bridge still EMITS the canonical spec form.
+    return s.replace("—", "-").replace("–", "-")
+
+
+_HALT_NORM = _dash_norm(HALT_TOKEN)
+_THREAD_CLOSED_NORM = _dash_norm(THREAD_CLOSED_PREFIX)
+
+
+def is_halt_token(body: str) -> bool:
+    """sec 6 halt token, accepting the em-dash spec form OR the natural hyphen form."""
+    return _dash_norm(body.strip()) == _HALT_NORM
+
+
+def is_thread_closed_line(body: str) -> bool:
+    """sec 7.2 THREAD CLOSED control line (exact prefix), em-dash or hyphen form."""
+    return _dash_norm(body.strip()).startswith(_THREAD_CLOSED_NORM)
+
+
 def is_control_line(body: str) -> bool:
-    """The two legitimate untagged lines: the exact halt token and the exact THREAD CLOSED line."""
-    s = body.strip()
-    return s == HALT_TOKEN or s.startswith(THREAD_CLOSED_PREFIX)
+    """The two legitimate untagged lines: the halt token and the THREAD CLOSED line (either dash)."""
+    return is_halt_token(body) or is_thread_closed_line(body)
 
 
 def _field_value(body: str, key: str) -> Optional[str]:
@@ -273,7 +295,7 @@ def check_egress(
 def wrap_ingress(sender_id: str, sender_handle: str, body: str) -> IngressResult:
     """sec 10 ingress wrapping: every inbound channel byte is delivered pre-marked UNTRUSTED, with
     bridge-asserted provenance and any imperative-actuation phrasing flagged (never auto-executed)."""
-    is_halt = body.strip() == HALT_TOKEN
+    is_halt = is_halt_token(body)
     neutralized = strip_authority_markers(body)
     actuation = bool(_ACTUATION_RE.search(body))
     prov = f"sender={sender_handle} id={sender_id}"

@@ -66,11 +66,12 @@ payload)` collapses these to a stable label.
 | 502 | `{"ok": false, "reason": "discord send failed: ..."}` | Discord-side send error. The rate token was refunded, so retry does not cost you budget. | Retry with backoff. |
 
 Note the two control-line posts are NOT special-cased in the request shape - you post them through the
-same `/egress` `body`. The exact halt token (`OFF-TOPIC — halted per rule 6.`) sets the thread halted;
-a body starting with the exact THREAD CLOSED prefix (`THREAD CLOSED — no yield.`) sets it closed. Both
-strings are matched byte-for-byte INCLUDING the em-dash (they come from `enforce.py`, which mirrors
-HOUSE_RULES sec 6 / 7.2). Use `client.BridgeClient.halt()` / `.close_thread()` so you never mistype
-them - a hyphen variant posts as ordinary text and does NOT trip the mechanical halt/close.
+same `/egress` `body`. The halt token (`OFF-TOPIC — halted per rule 6.`) sets the thread halted; a body
+starting with the THREAD CLOSED prefix (`THREAD CLOSED — no yield.`) sets it closed. Our bridge
+recognizes EITHER the canonical em-dash or a plain hyphen in these (so an agent that types the natural
+hyphen still trips the halt). Still use `client.BridgeClient.halt()` / `.close_thread()`: they emit the
+canonical em-dash form, and a PEER fleet's bridge may match strictly, so the canonical bytes halt
+across all of them.
 
 ## GET /ingress?since=<cursor> - reading the channel
 

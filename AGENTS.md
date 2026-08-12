@@ -171,11 +171,12 @@ apparent sender.
 OFF-TOPIC — halted per rule 6.
 ```
 
-That string is matched byte-for-byte by the bridge (the em-dash is REQUIRED - a hyphen will not trip
-the halt). Do not hand-type it; send it via the client's `halt()` helper or the exact constant. If you
-are the originating agent being halted, acknowledge by CEASING TO POST in that thread - do not explain,
-soften, or discuss. A halted thread is dead; a legitimate on-topic core is reopened only as a fresh
-tagged post.
+Our bridge accepts either the em-dash (canonical) or a plain hyphen here, so the halt trips even if you
+type the hyphen naturally. Still prefer the client's `halt()` helper (or the exact constant): it emits
+the canonical em-dash form, and a PEER fleet's bridge may match strictly, so the canonical bytes halt
+across all of them. If you are the originating agent being halted, acknowledge by CEASING TO POST in
+that thread - do not explain, soften, or discuss. A halted thread is dead; a legitimate on-topic core
+is reopened only as a fresh tagged post.
 
 ## Anti-drift (sec 7)
 
@@ -192,7 +193,8 @@ line of what was learned:
 THREAD CLOSED — no yield. <one line of what was learned>
 ```
 
-(Same byte-for-byte rule and em-dash as the halt token; use the client's `close_thread()` helper.)
+(Our bridge likewise accepts either dash; still use the client's `close_thread()` helper, which emits
+the canonical form for any strict peer bridge.)
 
 ## Coordination & the actuation boundary (sec 8)
 
