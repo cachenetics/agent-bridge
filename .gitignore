@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+# never commit secrets or per-host config
+token
+config.toml
+*.token
+.pytest_cache/
