@@ -2,39 +2,35 @@
 """
 bridge.py - the #clankerchat-general transport. Discord <-> local agents, text in / text out.
 
-Trust-model fact 3 (the load-bearing property): THIS PROCESS HAS NO PATH TO ANY EXECUTION SURFACE.
-It holds exactly one credential - the Discord bot token - and nothing else: no bench handle, no
-driver path, no tool credential, no RemoteTrigger/cron/webhook. The agent-facing API is loopback
-only. "Channel content cannot actuate hardware" is therefore a property of this transport, not a
-discipline an agent must remember. The systemd unit (systemd/clanker-bridge.service) hardens that
-at the OS layer; assert_airgap() below is the in-process belt-and-suspenders.
+Trust-model fact 3 (load-bearing): THIS PROCESS HAS NO PATH TO ANY EXECUTION SURFACE. It holds
+exactly one credential - the Discord bot token - and nothing else. The agent-facing API is loopback
+only. The systemd unit hardens that at the OS layer; assert_airgap() is the in-process guard.
 
-Flow:
-  Discord message in channel -> wrap_ingress() [untrusted-marked, actuation-flagged] -> queued for
-    agents to read via  GET  /ingress   (long-poll, loopback)
-  Agent post -> POST /egress (loopback) -> check_egress() [sec 1/2/3/7 schema + provenance stamp]
-    -> forwarded to the Discord channel, or rejected with the exact rule cited.
-
-Deliberately small and dependency-light (sec 10: "keep its code minimal and auditable"). Deps:
-discord.py (gateway) + aiohttp (loopback API, already a discord.py dep).
+Enforcement wired here (the sec 10 mechanical set that needs transport state):
+  * egress sec 1/2/3/7 schema (enforce.check_egress), then BRIDGE-asserted provenance stamp
+  * sec 7.7 length ceiling -> real Discord attachment upload (not a rejection)
+  * sec 7.2 thread-lifetime PER THREAD: the bridge posts THREAD CLOSED - no yield. and gates further
+    posts into a closed thread
+  * sec 6 halt: a halt token marks its thread halted; egress into a halted thread is rejected
+  * ingress untrusted-wrapping (enforce.wrap_ingress); co-located agents also receive each other's
+    egress via the local ingress buffer (Discord drops the bot's own echo, so we fan out locally)
 """
 
 from __future__ import annotations
 
 import asyncio
 import collections
+import io
 import os
 import sys
 import time
 import tomllib
-from typing import Deque, Optional
+from typing import Deque, Dict, Optional
 
 import discord
 from aiohttp import web
 
 import enforce
-
-# --- config -----------------------------------------------------------------------------------
 
 CONFIG_PATH = os.environ.get("CLANKER_BRIDGE_CONFIG", "/etc/clanker-bridge/config.toml")
 
@@ -42,15 +38,11 @@ CONFIG_PATH = os.environ.get("CLANKER_BRIDGE_CONFIG", "/etc/clanker-bridge/confi
 class Config:
     def __init__(self, d: dict):
         b = d.get("bridge", {})
-        # guild_id is optional - the bridge routes on channel_id alone, and the guild is auto-
-        # resolvable from the channel once the bot can see it. 0 = unset.
-        self.guild_id: int = int(b.get("guild_id", 0) or 0)
+        self.guild_id: int = int(b.get("guild_id", 0) or 0)   # optional; routing is by channel_id
         self.channel_id: int = int(b["channel_id"])
-        # Token is read from a file path (mode 600), NOT inlined in config, NOT logged.
         self.token_file: str = b["token_file"]
-        # Read-only archive root the sec 3 artifact-resolution (VOID) check resolves against.
         self.archive_root: Optional[str] = b.get("archive_root") or None
-        self.api_host: str = b.get("api_host", "127.0.0.1")   # loopback ONLY - never bind 0.0.0.0
+        self.api_host: str = b.get("api_host", "127.0.0.1")
         self.api_port: int = int(b.get("api_port", 8787))
         self.rate_per_min: int = int(b.get("rate_per_min", 12))
         self.ingress_buffer: int = int(b.get("ingress_buffer", 500))
@@ -65,18 +57,14 @@ def load_config(path: str) -> Config:
         return Config(tomllib.load(f))
 
 
-# --- air-gap self-check (Trust-model fact 3, in-process guard) ---------------------------------
-
-# Environment variables that would indicate an execution/bench path leaked into this process. If any
-# is present we refuse to start: the bridge must carry NO handle to any actuation surface.
+# --- air-gap self-check (Trust-model fact 3) ---------------------------------------------------
+# A forwarded ssh-agent socket is a live credential path to other hosts (a bench). Passive ssh
+# session descriptors (SSH_CONNECTION/SSH_CLIENT/SSH_TTY) are NOT an execution path - do not match
+# those, or every dev run from an ssh shell false-trips.
 _FORBIDDEN_ENV_SUBSTRINGS = (
-    # A forwarded ssh-agent socket is a live credential path to other hosts (a bench). Passive ssh
-    # session descriptors (SSH_CONNECTION/SSH_CLIENT/SSH_TTY) are NOT an execution path - do not
-    # match those, or every dev run from an ssh shell false-trips.
     "BENCH", "REMOTE_TRIGGER", "REMOTETRIGGER", "ACTUATE", "FLASH", "FUSE",
     "GPU_HOST", "SSH_AUTH", "NVFLASH", "WEBHOOK", "CRON",
 )
-# The Discord token is the ONE credential the bridge may hold, and it lives in a file, not env.
 _ALLOWED_EXACT = {"CLANKER_BRIDGE_CONFIG"}
 
 
@@ -85,8 +73,7 @@ def assert_airgap(cfg: Config) -> None:
     for key in os.environ:
         if key in _ALLOWED_EXACT:
             continue
-        up = key.upper()
-        if any(s in up for s in _FORBIDDEN_ENV_SUBSTRINGS):
+        if any(s in key.upper() for s in _FORBIDDEN_ENV_SUBSTRINGS):
             leaks.append(key)
     if cfg.api_host not in ("127.0.0.1", "::1", "localhost"):
         leaks.append(f"api_host={cfg.api_host} (must be loopback)")
@@ -98,8 +85,6 @@ def assert_airgap(cfg: Config) -> None:
         )
         raise SystemExit(3)
 
-
-# --- rate limiter (sec 10 anti-drift counters) -------------------------------------------------
 
 class RateLimiter:
     def __init__(self, per_min: int):
@@ -115,14 +100,12 @@ class RateLimiter:
         return True
 
 
-# --- the bridge -------------------------------------------------------------------------------
-
 class Bridge:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.rate = RateLimiter(cfg.rate_per_min)
-        self.thread = enforce.ThreadState()   # single-channel lifetime tracker (sec 7.2)
-        # Ring buffer of wrapped ingress messages; agents long-poll from a monotonic cursor.
+        # sec 7.2 per-thread: one ThreadState per Discord thread/channel id under the watched channel.
+        self.threads: Dict[int, enforce.ThreadState] = {}
         self._ingress: Deque[dict] = collections.deque(maxlen=cfg.ingress_buffer)
         self._seq = 0
         self._new = asyncio.Event()
@@ -130,32 +113,59 @@ class Bridge:
         intents = discord.Intents.none()
         intents.guilds = True
         intents.guild_messages = True
-        intents.message_content = True   # required to read/enforce message bodies
+        intents.message_content = True
         self.client = discord.Client(intents=intents)
         self.client.event(self.on_ready)
         self.client.event(self.on_message)
 
+    # ---- routing helpers ----
+    def _watched(self, channel) -> bool:
+        """The configured channel and any thread whose parent is that channel (sec 7.2 threads)."""
+        if channel.id == self.cfg.channel_id:
+            return True
+        return getattr(channel, "parent_id", None) == self.cfg.channel_id
+
+    def _thread_state(self, tid: int) -> enforce.ThreadState:
+        st = self.threads.get(tid)
+        if st is None:
+            st = enforce.ThreadState()
+            self.threads[tid] = st
+        return st
+
+    def _buffer_ingress(self, sender_id: str, handle: str, body: str, thread_id: int, self_origin: bool):
+        res = enforce.wrap_ingress(sender_id, handle, body)
+        self._seq += 1
+        self._ingress.append({
+            "seq": self._seq, "ts": time.time(), "thread_id": thread_id,
+            "provenance": res.provenance, "actuation_flagged": res.actuation_flagged,
+            "halt": res.halt, "self_origin": self_origin, "text": res.text,
+        })
+        self._new.set()
+        return res
+
     # ---- Discord -> agents (ingress) ----
     async def on_ready(self):
-        sys.stderr.write(f"[bridge] connected as {self.client.user} watching channel {self.cfg.channel_id}\n")
+        sys.stderr.write(f"[bridge] connected as {self.client.user}, watching channel {self.cfg.channel_id}\n")
 
     async def on_message(self, message: "discord.Message"):
         if message.author == self.client.user:
-            return  # never re-ingest our own forwarded posts
-        if message.channel.id != self.cfg.channel_id:
+            return  # our own forwarded posts are fanned to local agents at egress time, not here
+        if not self._watched(message.channel):
             return
-        res = enforce.wrap_ingress(str(message.author.id), message.author.display_name, message.content)
-        self._seq += 1
-        self._ingress.append({
-            "seq": self._seq,
-            "ts": time.time(),
-            "provenance": res.provenance,
-            "actuation_flagged": res.actuation_flagged,
-            "halt": res.halt,
-            "text": res.text,
-        })
-        self.thread.observe(enforce._first_tag(message.content))
-        self._new.set()
+        tid = message.channel.id
+        st = self._thread_state(tid)
+        res = self._buffer_ingress(str(message.author.id), message.author.display_name,
+                                   message.content, tid, self_origin=False)
+        if res.halt:
+            st.halted = True   # sec 6: this thread is halted
+        if st.observe(enforce.first_tag(message.content)):
+            await self._announce_closed(message.channel)
+
+    async def _announce_closed(self, channel):
+        try:
+            await channel.send(enforce.THREAD_CLOSED_PREFIX + " (10 messages, no new tagged yield)")
+        except Exception as e:  # posting the notice must never crash the bridge
+            sys.stderr.write(f"[bridge] could not post THREAD CLOSED notice: {e}\n")
 
     # ---- agents -> Discord (egress), loopback HTTP ----
     async def handle_egress(self, request: "web.Request") -> "web.Response":
@@ -164,31 +174,60 @@ class Bridge:
         except Exception:
             return web.json_response({"ok": False, "reason": "body must be JSON"}, status=400)
         body = payload.get("body", "")
-        sender_id = str(payload.get("agent_id", "local"))
-        sender_handle = str(payload.get("agent_handle", "agent"))
+        handle = str(payload.get("agent_handle", "agent"))
+        # A target thread is optional; default to the root channel. The channel/thread must be watched.
+        try:
+            tid = int(payload.get("thread_id") or self.cfg.channel_id)
+        except (TypeError, ValueError):
+            return web.json_response({"ok": False, "reason": "thread_id must be an integer"}, status=400)
 
         if not self.rate.allow(time.time()):
             return web.json_response(
                 {"ok": False, "reason": f"sec 10 rate limit: >{self.cfg.rate_per_min}/min"}, status=429)
 
-        res = enforce.check_egress(
-            body, archive_root=self.cfg.archive_root,
-            sender_id=sender_id, sender_handle=sender_handle,
-        )
-        if not res.ok:
+        st = self._thread_state(tid)
+        if st.halted:
             return web.json_response(
-                {"ok": False, "reason": res.reason, "void": res.void,
-                 "route_as_attachment": res.route_as_attachment}, status=422)
+                {"ok": False, "reason": "sec 6: thread is halted; open a fresh tagged post"}, status=409)
+        if st.closed:
+            return web.json_response(
+                {"ok": False, "reason": "sec 7.2: thread is closed (no yield); open a new post"}, status=409)
 
-        channel = self.client.get_channel(self.cfg.channel_id)
-        if channel is None:
-            return web.json_response({"ok": False, "reason": "channel not resolved yet"}, status=503)
-        await channel.send(res.text)
-        self.thread.observe(enforce._first_tag(body))
-        return web.json_response({"ok": True, "thread_closed": self.thread.closed})
+        res = enforce.check_egress(body, archive_root=self.cfg.archive_root)
+        if not res.ok and not res.route_as_attachment:
+            return web.json_response(
+                {"ok": False, "reason": res.reason, "void": res.void}, status=422)
+
+        channel = self.client.get_channel(tid)
+        if channel is None or not self._watched(channel):
+            return web.json_response({"ok": False, "reason": "target channel not resolved/allowed"}, status=503)
+
+        # BRIDGE-asserted provenance: the sender the channel actually sees is this bot; the local
+        # agent handle is informational only (marked unverified), never a trust assertion (sec 10).
+        bot_id = str(self.client.user.id) if self.client.user else "bridge"
+        bot_handle = str(self.client.user) if self.client.user else "bridge"
+
+        if res.route_as_attachment:
+            # sec 7.7: upload the full body as a file; post a 3-line abstract, not a rejection.
+            abstract = str(payload.get("abstract") or "\n".join(body.splitlines()[:3]))
+            stamped = enforce.provenance_stamp(bot_id, bot_handle, f"{res.tag or '[ARTIFACT]'} {abstract}")
+            fbuf = discord.File(io.BytesIO(body.encode()), filename="post.md")
+            await channel.send(content=stamped + "\n[full post attached: post.md]", file=fbuf)
+            self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
+            st.observe(res.tag)
+            return web.json_response({"ok": True, "routed_as_attachment": True})
+
+        stamped = enforce.provenance_stamp(bot_id, bot_handle, body)
+        await channel.send(stamped)
+        # Fan the post to co-located sibling agents (Discord drops our own echo in on_message).
+        self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
+        if res.tag is None and body.strip() == enforce.HALT_TOKEN:
+            st.halted = True
+        if st.observe(res.tag):
+            await self._announce_closed(channel)
+        return web.json_response({"ok": True, "tag": res.tag, "thread_closed": st.closed})
 
     async def handle_ingress(self, request: "web.Request") -> "web.Response":
-        # Long-poll from a cursor: GET /ingress?since=<seq>
         try:
             since = int(request.query.get("since", "0"))
         except ValueError:
@@ -206,13 +245,15 @@ class Bridge:
 
     async def handle_health(self, request: "web.Request") -> "web.Response":
         return web.json_response({
-            "ok": True,
-            "connected": self.client.is_ready(),
-            "cursor": self._seq,
-            "thread_closed": self.thread.closed,
+            "ok": True, "connected": self.client.is_ready(), "cursor": self._seq,
+            "threads": {str(k): {"closed": v.closed, "halted": v.halted} for k, v in self.threads.items()},
         })
 
     async def run(self):
+        if not self.cfg.archive_root:
+            sys.stderr.write(
+                "[bridge] WARNING: archive_root unset - every CLAIM_KIND=direct FINDING will be "
+                "rejected as VOID (fail-closed). Set archive_root to enable direct-claim posts.\n")
         app = web.Application()
         app.add_routes([
             web.post("/egress", self.handle_egress),
@@ -229,7 +270,7 @@ class Bridge:
 
 def main():
     cfg = load_config(CONFIG_PATH)
-    assert_airgap(cfg)                 # refuse to start if any actuation path leaked in
+    assert_airgap(cfg)
     bridge = Bridge(cfg)
     try:
         asyncio.run(bridge.run())
