@@ -86,7 +86,12 @@ printf '%s' 'THE_REAL_BOT_TOKEN' > ~/.config/clanker-bridge/token   # mode 600
 ## Tests
 
 ```sh
-python -m pytest tests/ -q          # pins the referee, both directions
+# enforce.py tests need no deps; transport tests (tests/test_bridge.py) import discord, so run
+# both suites from the venv:
+./deploy.sh install
+VENV=~/.local/share/clanker-bridge/venv
+"$VENV/bin/pip" install -r requirements-dev.txt
+"$VENV/bin/python" -m pytest tests/ -q     # 45 tests, both directions pinned
 ```
 
 ## Trust-model rule -> code map

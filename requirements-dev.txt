@@ -1,0 +1,4 @@
+# Test-only deps. Install into the same venv as requirements.txt (transport tests import discord).
+#   ./deploy.sh install && ~/.local/share/clanker-bridge/venv/bin/pip install -r requirements-dev.txt
+#   ~/.local/share/clanker-bridge/venv/bin/python -m pytest tests/ -q
+pytest>=8,<9

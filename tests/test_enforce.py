@@ -92,6 +92,28 @@ def test_finding_bad_status_rejected():
     assert not r.ok and "ladder token" in r.reason
 
 
+def test_status_review_pending_marker_allowed():   # sec 2: review marker appended to status is valid
+    for s in ("PROVEN REVIEW_PENDING", "PROVEN, REVIEW_PENDING", "MEASURED/REVIEW_CLEARED"):
+        r = enforce.check_egress(_good_finding(sample="3", status=s))
+        assert r.ok, (s, r.reason)
+
+
+def test_status_bad_trailing_token_rejected():
+    r = enforce.check_egress(_good_finding(status="MEASURED BOGUS"))
+    assert not r.ok and "unexpected STATUS token" in r.reason
+
+
+def test_review_marker_does_not_lift_proven_sample_rule():
+    # PROVEN REVIEW_PENDING at SAMPLE_COUNT=1 still fails the sample rule (marker never raises status).
+    r = enforce.check_egress(_good_finding(sample="1", status="PROVEN REVIEW_PENDING"))
+    assert not r.ok and "PROVEN" in r.reason
+
+
+def test_artifact_directory_is_void(tmp_path):   # M2: a directory is not a non-empty file artifact
+    r = enforce.check_egress(_good_finding(artifact=".", claim="direct"), archive_root=str(tmp_path))
+    assert not r.ok and r.void
+
+
 # --- sec 2/3 SAMPLE_COUNT / PROVEN, parsed not substring ---------------------------------------
 def test_sample_one_cannot_be_proven():
     r = enforce.check_egress(_good_finding(sample="1", status="PROVEN"))
@@ -144,6 +166,28 @@ def test_length_ceiling_routes_to_attachment():
     body = "[HYPOTHESIS]\n" + "\n".join(f"line {i}" for i in range(40))
     r = enforce.check_egress(body)
     assert not r.ok and r.route_as_attachment and r.tag == "[HYPOTHESIS]"
+
+
+_PAD = "\n" + "\n".join(f"pad line {i}" for i in range(35))
+
+
+def test_overlength_valid_finding_routes_to_attachment():
+    r = enforce.check_egress(_good_finding() + _PAD)
+    assert not r.ok and r.route_as_attachment and r.tag == "[FINDING]"
+
+
+def test_overlength_finding_missing_field_is_rejected_not_attached():
+    # H1 regression: schema must be checked BEFORE length routing, or padding bypasses field-gating.
+    body = _good_finding().replace("STATUS: MEASURED\n", "") + _PAD
+    r = enforce.check_egress(body)
+    assert not r.ok and not r.route_as_attachment and "STATUS" in r.reason
+
+
+def test_overlength_direct_void_not_bypassed_by_padding(tmp_path):
+    # H1 regression: a padded direct-claim with a missing artifact must still be VOID, not attached.
+    body = _good_finding(artifact="nope.log", claim="direct") + _PAD
+    r = enforce.check_egress(body, archive_root=str(tmp_path))
+    assert not r.ok and r.void and not r.route_as_attachment
 
 
 # --- sec 6 control lines ----------------------------------------------------------------------

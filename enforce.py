@@ -89,6 +89,7 @@ _ACTUATION_RE = re.compile(
     r"|\b(?:reset|power[-\s]?cycle|reboot)\b[^.\n]{0,20}\b(?:card|gpu|board|rig|device)\b"
     r"|\b(?:run|try|execute|fire|kick\s+off)\b[^.\n]{0,30}\bon\s+(?:your|the|my)\s+"
     r"(?:card|gpu|board|rig|bench|hardware|device)\b"
+    r"|\bjust\s+do\s+it\b|\bdo\s+it\s+now\b"   # sec 8 rushed-go phrasing
     r")"
 )
 
@@ -169,9 +170,10 @@ def _artifact_resolves(body: str, archive_root: Optional[str]) -> bool:
         return False
     candidate = os.path.realpath(os.path.join(archive_root, path.lstrip("/")))
     root = os.path.realpath(archive_root)
-    if not (candidate == root or candidate.startswith(root + os.sep)):  # symlink jail
+    if not candidate.startswith(root + os.sep):  # symlink jail; a bare root dir is not an artifact
         return False
-    return os.path.exists(candidate) and os.path.getsize(candidate) > 0  # sec 3.2 non-empty
+    # Must resolve to a real, non-empty FILE (sec 3.2). A directory ("ARTIFACT: .") is not evidence.
+    return os.path.isfile(candidate) and os.path.getsize(candidate) > 0
 
 
 def strip_authority_markers(body: str) -> str:
@@ -207,51 +209,58 @@ def check_egress(
             return EgressResult(ok=True, tag=None)   # halt / THREAD CLOSED control line
         return EgressResult(ok=False, reason="sec 1: post has no type tag (untyped = off-topic)")
 
-    # sec 7.7 length ceiling: >~30 lines routes to attachment (except [ARTIFACT], which IS the file).
+    # Validate the schema FIRST, THEN apply the length ceiling. Order matters: if the length ceiling
+    # ran first, an over-length [FINDING]/[EXPERIMENT] would route to an attachment and skip every
+    # required-field / STATUS / SAMPLE / VOID check - a sec 10 mechanical duty silently bypassed.
+    if tag == "[FINDING]" or tag == "[EXPERIMENT]":
+        missing = [f for f in FIELD_GATED_FIELDS[tag] if not _has_field(body, f)]
+        if missing:
+            return EgressResult(
+                ok=False, tag=tag,
+                reason=f"sec 1: {tag} missing required field(s): {', '.join(missing)} (see POSTING-SCHEMA.md)",
+            )
+        if tag == "[FINDING]":
+            # sec 2: STATUS is one ladder token, optionally followed by a REVIEW_PENDING/REVIEW_CLEARED
+            # marker (which "never raises or lowers the status label"). Key the ladder + PROVEN check
+            # on the FIRST token so "PROVEN REVIEW_PENDING" (rule-compliant) is not rejected.
+            raw = (_field_value(body, "STATUS") or "").upper().replace(",", " ").replace("/", " ")
+            parts = raw.split()
+            label = parts[0] if parts else ""
+            if label not in STATUS_LADDER:
+                return EgressResult(
+                    ok=False, tag=tag,
+                    reason=f"sec 1/2: STATUS must be a ladder token {STATUS_LADDER}, got '{label or 'empty'}'")
+            for extra in parts[1:]:
+                if extra not in ("REVIEW_PENDING", "REVIEW_CLEARED"):
+                    return EgressResult(
+                        ok=False, tag=tag,
+                        reason=f"sec 2: unexpected STATUS token '{extra}' (only a REVIEW_PENDING/REVIEW_CLEARED marker may follow)")
+            claim_kind = (_field_value(body, "CLAIM_KIND") or "").strip().lower()
+            if claim_kind not in CLAIM_KINDS:
+                return EgressResult(
+                    ok=False, tag=tag, reason=f"sec 1: CLAIM_KIND must be one of {CLAIM_KINDS}")
+            try:
+                sample = int((_field_value(body, "SAMPLE_COUNT") or "").strip())
+            except ValueError:
+                return EgressResult(ok=False, tag=tag, reason="sec 1: SAMPLE_COUNT must be an integer")
+            # sec 2/3: PROVEN needs SAMPLE_COUNT>1 or an explicit SINGLE_SAMPLE_OK field (not a substring).
+            if label == "PROVEN" and sample <= 1 and not _has_field(body, "SINGLE_SAMPLE_OK"):
+                return EgressResult(
+                    ok=False, tag=tag,
+                    reason="sec 2/3: STATUS=PROVEN needs SAMPLE_COUNT>1, or a SINGLE_SAMPLE_OK: justification")
+            # sec 3: CLAIM_KIND=direct with an artifact that does not resolve to a non-empty FILE => VOID.
+            if claim_kind == "direct" and not _artifact_resolves(body, archive_root):
+                return EgressResult(
+                    ok=False, void=True, tag=tag,
+                    reason="sec 3: CLAIM_KIND=direct ARTIFACT path does not resolve (VOID)")
+    # else: [HYPOTHESIS]/[ARTIFACT]/[CORRECTION] - tag required, contents deferred to review (sec 10).
+
+    # sec 7.7 length ceiling - applied AFTER the post is schema-valid. [ARTIFACT] IS the file, exempt.
     if body.count("\n") + 1 > LENGTH_CEILING_LINES and tag != "[ARTIFACT]":
         return EgressResult(
             ok=False, route_as_attachment=True, tag=tag,
             reason="sec 7.7: over length ceiling - routing to attachment + 3-line abstract",
         )
-
-    if tag in TAG_ONLY_TYPES:
-        # sec 10: tag required, contents deferred to adversarial review (sec 4/5). Do not gate fields.
-        return EgressResult(ok=True, tag=tag)
-
-    # tag is [FINDING] or [EXPERIMENT] - the two field-gated types.
-    missing = [f for f in FIELD_GATED_FIELDS[tag] if not _has_field(body, f)]
-    if missing:
-        return EgressResult(
-            ok=False, tag=tag,
-            reason=f"sec 1: {tag} missing required field(s): {', '.join(missing)} (see POSTING-SCHEMA.md)",
-        )
-
-    if tag == "[FINDING]":
-        status = (_field_value(body, "STATUS") or "").strip().upper()
-        if status not in STATUS_LADDER:
-            return EgressResult(
-                ok=False, tag=tag,
-                reason=f"sec 1/2: STATUS must be a ladder token {STATUS_LADDER}, got '{status or 'empty'}'")
-        claim_kind = (_field_value(body, "CLAIM_KIND") or "").strip().lower()
-        if claim_kind not in CLAIM_KINDS:
-            return EgressResult(
-                ok=False, tag=tag,
-                reason=f"sec 1: CLAIM_KIND must be one of {CLAIM_KINDS}")
-        sample_raw = (_field_value(body, "SAMPLE_COUNT") or "").strip()
-        try:
-            sample = int(sample_raw)
-        except ValueError:
-            return EgressResult(ok=False, tag=tag, reason="sec 1: SAMPLE_COUNT must be an integer")
-        # sec 2/3: PROVEN needs SAMPLE_COUNT>1 or an explicit SINGLE_SAMPLE_OK field (not a substring).
-        if status == "PROVEN" and sample <= 1 and not _has_field(body, "SINGLE_SAMPLE_OK"):
-            return EgressResult(
-                ok=False, tag=tag,
-                reason="sec 2/3: STATUS=PROVEN needs SAMPLE_COUNT>1, or a SINGLE_SAMPLE_OK: justification")
-        # sec 3: CLAIM_KIND=direct with an artifact path that does not resolve => VOID on sight.
-        if claim_kind == "direct" and not _artifact_resolves(body, archive_root):
-            return EgressResult(
-                ok=False, void=True, tag=tag,
-                reason="sec 3: CLAIM_KIND=direct ARTIFACT path does not resolve (VOID)")
 
     return EgressResult(ok=True, tag=tag)
 

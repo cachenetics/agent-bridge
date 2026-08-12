@@ -61,10 +61,10 @@ def load_config(path: str) -> Config:
 # A forwarded ssh-agent socket is a live credential path to other hosts (a bench). Passive ssh
 # session descriptors (SSH_CONNECTION/SSH_CLIENT/SSH_TTY) are NOT an execution path - do not match
 # those, or every dev run from an ssh shell false-trips.
-_FORBIDDEN_ENV_SUBSTRINGS = (
-    "BENCH", "REMOTE_TRIGGER", "REMOTETRIGGER", "ACTUATE", "FLASH", "FUSE",
-    "GPU_HOST", "SSH_AUTH", "NVFLASH", "WEBHOOK", "CRON",
-)
+# Matched as whole underscore-delimited tokens so benign names (REFUSE, MICRON, FLASHLIGHT) do not
+# false-trip. Multi-token phrases are matched as substrings of the whole key.
+_FORBIDDEN_ENV_TOKENS = {"BENCH", "ACTUATE", "FLASH", "FUSE", "NVFLASH", "WEBHOOK", "CRON", "REMOTETRIGGER"}
+_FORBIDDEN_ENV_PHRASES = ("REMOTE_TRIGGER", "GPU_HOST", "SSH_AUTH")
 _ALLOWED_EXACT = {"CLANKER_BRIDGE_CONFIG"}
 
 
@@ -73,7 +73,8 @@ def assert_airgap(cfg: Config) -> None:
     for key in os.environ:
         if key in _ALLOWED_EXACT:
             continue
-        if any(s in key.upper() for s in _FORBIDDEN_ENV_SUBSTRINGS):
+        up = key.upper()
+        if (set(up.split("_")) & _FORBIDDEN_ENV_TOKENS) or any(p in up for p in _FORBIDDEN_ENV_PHRASES):
             leaks.append(key)
     if cfg.api_host not in ("127.0.0.1", "::1", "localhost"):
         leaks.append(f"api_host={cfg.api_host} (must be loopback)")
@@ -181,10 +182,6 @@ class Bridge:
         except (TypeError, ValueError):
             return web.json_response({"ok": False, "reason": "thread_id must be an integer"}, status=400)
 
-        if not self.rate.allow(time.time()):
-            return web.json_response(
-                {"ok": False, "reason": f"sec 10 rate limit: >{self.cfg.rate_per_min}/min"}, status=429)
-
         st = self._thread_state(tid)
         if st.halted:
             return web.json_response(
@@ -201,6 +198,12 @@ class Bridge:
         channel = self.client.get_channel(tid)
         if channel is None or not self._watched(channel):
             return web.json_response({"ok": False, "reason": "target channel not resolved/allowed"}, status=503)
+
+        # Rate limit is charged only on a post that will actually reach Discord (after validation),
+        # so a malformed flood cannot starve valid posters (rejects above never consume a token).
+        if not self.rate.allow(time.time()):
+            return web.json_response(
+                {"ok": False, "reason": f"sec 10 rate limit: >{self.cfg.rate_per_min}/min"}, status=429)
 
         # BRIDGE-asserted provenance: the sender the channel actually sees is this bot; the local
         # agent handle is informational only (marked unverified), never a trust assertion (sec 10).
@@ -221,8 +224,11 @@ class Bridge:
         await channel.send(stamped)
         # Fan the post to co-located sibling agents (Discord drops our own echo in on_message).
         self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
-        if res.tag is None and body.strip() == enforce.HALT_TOKEN:
-            st.halted = True
+        if res.tag is None:
+            if body.strip() == enforce.HALT_TOKEN:
+                st.halted = True                              # sec 6
+            elif body.strip().startswith(enforce.THREAD_CLOSED_PREFIX):
+                st.closed = True                              # sec 7.2 - agent-declared close
         if st.observe(res.tag):
             await self._announce_closed(channel)
         return web.json_response({"ok": True, "tag": res.tag, "thread_closed": st.closed})
@@ -234,10 +240,12 @@ class Bridge:
             since = 0
         deadline = time.time() + 25.0
         while True:
+            # Clear BEFORE reading the buffer so a message buffered during the read still leaves the
+            # event set (no lost-wakeup: the next wait() returns immediately instead of stalling 25s).
+            self._new.clear()
             msgs = [m for m in self._ingress if m["seq"] > since]
             if msgs or time.time() >= deadline:
                 return web.json_response({"messages": msgs, "cursor": self._seq})
-            self._new.clear()
             try:
                 await asyncio.wait_for(self._new.wait(), timeout=max(0.1, deadline - time.time()))
             except asyncio.TimeoutError:
