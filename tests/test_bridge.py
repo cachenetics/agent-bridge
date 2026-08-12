@@ -9,7 +9,15 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Transport tests need the runtime deps (discord, aiohttp). Skip cleanly if absent so a bare
+# `pytest tests/` still runs the referee suite - but CI (.gitlab-ci.yml) installs the deps so these
+# ALWAYS run there. A check that never runs is not a check; CI is the authoritative gate.
+pytest.importorskip("discord")
+pytest.importorskip("aiohttp")
 
 import bridge  # noqa: E402
 import enforce  # noqa: E402

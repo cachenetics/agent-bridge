@@ -100,6 +100,12 @@ class RateLimiter:
         self._hits.append(now)
         return True
 
+    def refund(self) -> None:
+        """Return the most-recently-charged token - used when a post was charged but the Discord
+        send then failed, so a transport error does not consume a poster's budget."""
+        if self._hits:
+            self._hits.pop()
+
 
 class Bridge:
     def __init__(self, cfg: Config):
@@ -215,13 +221,23 @@ class Bridge:
             abstract = str(payload.get("abstract") or "\n".join(body.splitlines()[:3]))
             stamped = enforce.provenance_stamp(bot_id, bot_handle, f"{res.tag or '[ARTIFACT]'} {abstract}")
             fbuf = discord.File(io.BytesIO(body.encode()), filename="post.md")
-            await channel.send(content=stamped + "\n[full post attached: post.md]", file=fbuf)
+            try:
+                await channel.send(content=stamped + "\n[full post attached: post.md]", file=fbuf)
+            except Exception as e:
+                self.rate.refund()
+                return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
             self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
+            # observe() cannot be the crossing message here: every attach-eligible tag is a YIELD_TAG,
+            # so it resets the counter (returns False). Kept for counter hygiene if YIELD_TAGS changes.
             st.observe(res.tag)
             return web.json_response({"ok": True, "routed_as_attachment": True})
 
         stamped = enforce.provenance_stamp(bot_id, bot_handle, body)
-        await channel.send(stamped)
+        try:
+            await channel.send(stamped)
+        except Exception as e:
+            self.rate.refund()
+            return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
         # Fan the post to co-located sibling agents (Discord drops our own echo in on_message).
         self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
         if res.tag is None:

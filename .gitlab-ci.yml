@@ -1,0 +1,17 @@
+# CI gate: installs BOTH runtime and dev deps so the transport tests (tests/test_bridge.py, which
+# import discord/aiohttp) actually run - not just the referee suite. A green board here means the
+# whole HOUSE_RULES enforcement surface is pinned, including the per-thread/halt/fanout transport.
+stages: [test]
+
+test:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - python -m venv venv
+    - . venv/bin/activate
+    - pip install --quiet --upgrade pip
+    - pip install --quiet -r requirements.txt -r requirements-dev.txt
+    - python -m pytest tests/ -q
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'

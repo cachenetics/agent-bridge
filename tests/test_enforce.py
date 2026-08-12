@@ -148,6 +148,12 @@ def test_non_integer_sample_rejected():
     assert not r.ok and "integer" in r.reason
 
 
+def test_noncanonical_sample_rejected():   # N2: no "2_000", "+2", "-5", unicode digits
+    for bad in ("2_000", "+2", "-5", "٢", "2.0"):
+        r = enforce.check_egress(_good_finding(sample=bad))
+        assert not r.ok and "integer" in r.reason, bad
+
+
 # --- sec 3 VOID -------------------------------------------------------------------------------
 def test_direct_claim_unresolvable_artifact_is_void(tmp_path):
     r = enforce.check_egress(_good_finding(artifact="nope.log", claim="direct"), archive_root=str(tmp_path))
@@ -188,6 +194,18 @@ def test_overlength_direct_void_not_bypassed_by_padding(tmp_path):
     body = _good_finding(artifact="nope.log", claim="direct") + _PAD
     r = enforce.check_egress(body, archive_root=str(tmp_path))
     assert not r.ok and r.void and not r.route_as_attachment
+
+
+def test_overlength_artifact_also_routes_to_attachment():
+    # N1: [ARTIFACT] is NOT exempt from the length ceiling - a >30-line dump must attach, not inline.
+    body = "[ARTIFACT] firmware dump\n" + "\n".join(f"DEADBEEF{i:04x}" for i in range(200))
+    r = enforce.check_egress(body)
+    assert not r.ok and r.route_as_attachment and r.tag == "[ARTIFACT]"
+
+
+def test_short_artifact_still_passes_inline():
+    r = enforce.check_egress("[ARTIFACT] fuse dump, my own RE, image sn123 v1.2 sha256 abcd, study it")
+    assert r.ok and not r.route_as_attachment
 
 
 # --- sec 6 control lines ----------------------------------------------------------------------

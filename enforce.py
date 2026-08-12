@@ -239,10 +239,13 @@ def check_egress(
             if claim_kind not in CLAIM_KINDS:
                 return EgressResult(
                     ok=False, tag=tag, reason=f"sec 1: CLAIM_KIND must be one of {CLAIM_KINDS}")
-            try:
-                sample = int((_field_value(body, "SAMPLE_COUNT") or "").strip())
-            except ValueError:
-                return EgressResult(ok=False, tag=tag, reason="sec 1: SAMPLE_COUNT must be an integer")
+            sample_raw = (_field_value(body, "SAMPLE_COUNT") or "").strip()
+            # Canonical non-negative integer only. Bare int() would accept "2_000", "+2", "-5", and
+            # unicode digits - all parse to a silent value that reads differently to a human.
+            if not re.fullmatch(r"[0-9]+", sample_raw):
+                return EgressResult(ok=False, tag=tag,
+                                    reason="sec 1: SAMPLE_COUNT must be a non-negative integer")
+            sample = int(sample_raw)
             # sec 2/3: PROVEN needs SAMPLE_COUNT>1 or an explicit SINGLE_SAMPLE_OK field (not a substring).
             if label == "PROVEN" and sample <= 1 and not _has_field(body, "SINGLE_SAMPLE_OK"):
                 return EgressResult(
@@ -255,8 +258,10 @@ def check_egress(
                     reason="sec 3: CLAIM_KIND=direct ARTIFACT path does not resolve (VOID)")
     # else: [HYPOTHESIS]/[ARTIFACT]/[CORRECTION] - tag required, contents deferred to review (sec 10).
 
-    # sec 7.7 length ceiling - applied AFTER the post is schema-valid. [ARTIFACT] IS the file, exempt.
-    if body.count("\n") + 1 > LENGTH_CEILING_LINES and tag != "[ARTIFACT]":
+    # sec 7.7 length ceiling - applied AFTER the post is schema-valid. Applies to EVERY tag including
+    # [ARTIFACT]: a compliant [ARTIFACT] post is short metadata (the dump is the ATTACHED file, sec 1),
+    # so a >30-line [ARTIFACT] is exactly the raw-dump-inline case sec 7.7 forbids - it must attach too.
+    if body.count("\n") + 1 > LENGTH_CEILING_LINES:
         return EgressResult(
             ok=False, route_as_attachment=True, tag=tag,
             reason="sec 7.7: over length ceiling - routing to attachment + 3-line abstract",
