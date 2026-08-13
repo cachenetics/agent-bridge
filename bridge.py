@@ -117,6 +117,21 @@ class RateLimiter:
             self._hits.pop()
 
 
+def _is_forum(channel) -> bool:
+    """A Discord forum channel - every post in it IS a thread, so egress with no thread_id means
+    'start a new post' rather than 'send to the channel root' (forums have no free-text root)."""
+    return getattr(channel, "type", None) == discord.ChannelType.forum
+
+
+def _resolve_forum_tags(channel, names):
+    """Map requested tag NAMES to the forum's ForumTag objects (best-effort; unknown names ignored)."""
+    if not names:
+        return []
+    want = {str(n).strip().lower() for n in names}
+    return [t for t in (getattr(channel, "available_tags", None) or [])
+            if getattr(t, "name", "").lower() in want]
+
+
 class Bridge:
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -192,19 +207,13 @@ class Bridge:
             return web.json_response({"ok": False, "reason": "body must be JSON"}, status=400)
         body = payload.get("body", "")
         handle = str(payload.get("agent_handle", "agent"))
-        # A target thread is optional; default to the root channel. The channel/thread must be watched.
+        # thread_id is optional. If given -> reply into that thread/post. If absent -> the root
+        # channel (a text channel), OR "start a new post" when the root is a forum channel.
+        explicit_thread = payload.get("thread_id")
         try:
-            tid = int(payload.get("thread_id") or self.cfg.channel_id)
+            tid = int(explicit_thread) if explicit_thread is not None else self.cfg.channel_id
         except (TypeError, ValueError):
             return web.json_response({"ok": False, "reason": "thread_id must be an integer"}, status=400)
-
-        st = self._thread_state(tid)
-        if st.halted:
-            return web.json_response(
-                {"ok": False, "reason": "sec 6: thread is halted; open a fresh tagged post"}, status=409)
-        if st.closed:
-            return web.json_response(
-                {"ok": False, "reason": "sec 7.2: thread is closed (no yield); open a new post"}, status=409)
 
         res = enforce.check_egress(body, archive_root=self.cfg.archive_root)
         if not res.ok and not res.route_as_attachment:
@@ -215,51 +224,77 @@ class Bridge:
         if channel is None or not self._watched(channel):
             return web.json_response({"ok": False, "reason": "target channel not resolved/allowed"}, status=503)
 
-        # Rate limit is charged only on a post that will actually reach Discord (after validation),
-        # so a malformed flood cannot starve valid posters (rejects above never consume a token).
+        # A forum channel with no thread_id == "start a new post" (a forum post IS a thread).
+        new_forum_post = _is_forum(channel) and explicit_thread is None
+        title = payload.get("title")
+        if new_forum_post and not title:
+            return web.json_response(
+                {"ok": False, "reason": "forum: a new post needs a `title` (or a `thread_id` to reply)"},
+                status=400)
+
+        # Halt/close gating applies only to an EXISTING thread or the text-channel root state - never
+        # to a brand-new forum post (which has no prior state).
+        if not new_forum_post:
+            st = self._thread_state(tid)
+            if st.halted:
+                return web.json_response(
+                    {"ok": False, "reason": "sec 6: thread is halted; open a fresh tagged post"}, status=409)
+            if st.closed:
+                return web.json_response(
+                    {"ok": False, "reason": "sec 7.2: thread is closed (no yield); open a new post"}, status=409)
+
+        # Rate limit is charged only on a post that will actually reach Discord (after validation).
         if not self.rate.allow(time.time()):
             return web.json_response(
                 {"ok": False, "reason": f"sec 10 rate limit: >{self.cfg.rate_per_min}/min"}, status=429)
 
-        # BRIDGE-asserted provenance: the sender the channel actually sees is this bot; the local
-        # agent handle is informational only (marked unverified), never a trust assertion (sec 10).
+        # BRIDGE-asserted provenance: the sender the channel sees is this bot; the local agent handle
+        # is informational only (marked unverified), never a trust assertion (sec 10).
         bot_id = str(self.client.user.id) if self.client.user else "bridge"
         bot_handle = str(self.client.user) if self.client.user else "bridge"
 
         if res.route_as_attachment:
-            # sec 7.7: upload the full body as a file; post a 3-line abstract, not a rejection.
+            # sec 7.7: the full body becomes a file; the message carries a 3-line abstract.
             abstract = str(payload.get("abstract") or "\n".join(body.splitlines()[:3]))
-            stamped = enforce.provenance_stamp(bot_id, bot_handle, f"{res.tag or '[ARTIFACT]'} {abstract}")
+            content = enforce.provenance_stamp(
+                bot_id, bot_handle, f"{res.tag or '[ARTIFACT]'} {abstract}") + "\n[full post attached: post.md]"
             fbuf = discord.File(io.BytesIO(body.encode()), filename="post.md")
-            try:
-                sent = await channel.send(content=stamped + "\n[full post attached: post.md]", file=fbuf)
-            except Exception as e:
-                self.rate.refund()
-                return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
-            self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
-            # observe() cannot be the crossing message here: every attach-eligible tag is a YIELD_TAG,
-            # so it resets the counter (returns False). Kept for counter hygiene if YIELD_TAGS changes.
-            st.observe(res.tag)
-            return web.json_response(
-                {"ok": True, "routed_as_attachment": True, "message_id": str(sent.id)})
+        else:
+            content = enforce.provenance_stamp(bot_id, bot_handle, body)
+            fbuf = None
 
-        stamped = enforce.provenance_stamp(bot_id, bot_handle, body)
+        # Deliver: create a forum post (name=title) or send a message (reply / text-channel root).
         try:
-            sent = await channel.send(stamped)
+            if new_forum_post:
+                created = await channel.create_thread(
+                    name=str(title), content=content, file=fbuf,
+                    applied_tags=_resolve_forum_tags(channel, payload.get("tags")))
+                sent, tid = created.message, created.thread.id   # tid is now the new post's id
+            elif fbuf is not None:
+                sent = await channel.send(content=content, file=fbuf)
+            else:
+                sent = await channel.send(content)
         except Exception as e:
             self.rate.refund()
             return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
+
         # Fan the post to co-located sibling agents (Discord drops our own echo in on_message).
         self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
+        st = self._thread_state(tid)   # for a new forum post, tid is now that post's thread id
         if res.tag is None:
             if enforce.is_halt_token(body):
                 st.halted = True                              # sec 6 (em-dash or hyphen form)
             elif enforce.is_thread_closed_line(body):
                 st.closed = True                              # sec 7.2 - agent-declared close
-        if st.observe(res.tag):
+        if st.observe(res.tag) and not new_forum_post:
             await self._announce_closed(channel)
-        return web.json_response(
-            {"ok": True, "tag": res.tag, "thread_closed": st.closed, "message_id": str(sent.id)})
+
+        out = {"ok": True, "tag": res.tag, "thread_closed": st.closed, "message_id": str(sent.id)}
+        if new_forum_post:
+            out["thread_id"] = str(tid)          # the new post's id, so the agent can reply into it
+        if res.route_as_attachment:
+            out["routed_as_attachment"] = True
+        return web.json_response(out)
 
     async def handle_ingress(self, request: "web.Request") -> "web.Response":
         try:

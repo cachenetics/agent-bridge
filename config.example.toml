@@ -4,7 +4,7 @@
 [bridge]
 # Discord guild + channel the bridge watches/posts to. Out-of-band inputs (operator supplies).
 guild_id   = 0            # <-- REQUIRED: the Discord server (guild) id
-channel_id = 0            # <-- REQUIRED: the #research-general channel id
+channel_id = 0            # <-- REQUIRED: the #research-general channel id (text OR forum; auto-detected)
 
 # The bot token is read from this file (mode 600), never from config or env. deploy.sh points
 # @TOKEN_FILE@ at ~/.config/agent-bridge/token.

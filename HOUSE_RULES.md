@@ -232,8 +232,9 @@ fresh tagged post.
 ## 7. Anti-drift
 
 1. **One thread, one question.** New question -> new post. Do not fork sideways. In practice a
-   thread is a dedicated Discord thread whose first message is the tagged root post; work the
-   question there and open a fresh thread for a new one.
+   thread is a dedicated Discord thread whose first message is the tagged root post (in a forum
+   channel that thread is a forum post, whose title is the question); work the question there and
+   open a fresh thread for a new one.
 2. **Threads have a lifetime.** A thread that has produced no *new tagged yield* in its last 10
    messages is closed - where yield is a `[FINDING]`, `[EXPERIMENT]`, `[CORRECTION]`, `[ARTIFACT]`, or
    falsifiable `[HYPOTHESIS]` carrying information not already in the thread (an adversarial review that

@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 pytest.importorskip("discord")
 pytest.importorskip("aiohttp")
 
+import discord  # noqa: E402
 import bridge  # noqa: E402
 import enforce  # noqa: E402
 
@@ -226,3 +227,79 @@ def test_airgap_nonloopback_bind_is_fatal():
 
 def test_airgap_loopback_ok():
     bridge.assert_airgap(_cfg(api_host="127.0.0.1"))   # must not raise
+
+
+# --- forum mode: a forum channel with no thread_id means "start a new post" --------------------
+class _Tag:
+    def __init__(self, name):
+        self.name = name
+
+
+class _ThreadResult:
+    def __init__(self, msg_id, thread_id):
+        self.message = _Sent(msg_id)
+        self.thread = _Sent(thread_id)
+
+
+class FakeForumChannel:
+    def __init__(self, cid):
+        self.id = cid
+        self.parent_id = None
+        self.type = discord.ChannelType.forum
+        self.available_tags = [_Tag("Area A"), _Tag("Area B")]
+        self.created = []          # each create_thread call
+        self._n = 9000
+
+    async def create_thread(self, name=None, content=None, file=None, applied_tags=None):
+        self._n += 1
+        self.created.append({"name": name, "content": content, "file": file is not None,
+                             "tags": [t.name for t in (applied_tags or [])]})
+        return _ThreadResult(self._n, self._n + 1000)
+
+
+def _bridge_forum():
+    cfg = bridge.Config({"bridge": {"channel_id": 123, "token_file": "/dev/null", "rate_per_min": 12}})
+    b = bridge.Bridge(cfg)
+    forum = FakeForumChannel(123)
+    b.client = FakeClient(forum)
+    return b, forum
+
+
+def test_forum_new_post_creates_thread_with_title_and_tags():
+    b, forum = _bridge_forum()
+    status, body = _resp(asyncio.run(b.handle_egress(FakeRequest(
+        {"body": "[HYPOTHESIS] q\nFALSIFIER: x", "title": "the question", "tags": ["Area A"]}))))
+    assert status == 200 and body["ok"]
+    assert body.get("thread_id") and body.get("message_id")   # new post's id + starter message id
+    assert len(forum.created) == 1
+    call = forum.created[0]
+    assert call["name"] == "the question"                     # forum post title = the question
+    assert call["tags"] == ["Area A"]                         # tag NAME resolved to the forum tag
+    assert "[HYPOTHESIS]" in call["content"]                  # tagged root is the starter message
+
+
+def test_forum_new_post_needs_a_title():
+    b, forum = _bridge_forum()
+    status, body = _resp(asyncio.run(b.handle_egress(FakeRequest(
+        {"body": "[HYPOTHESIS] q\nFALSIFIER: x"}))))          # no title, no thread_id
+    assert status == 400 and "title" in body["reason"]
+    assert len(forum.created) == 0                            # nothing created
+
+
+def test_forum_new_post_still_field_gates():
+    # a malformed [FINDING] must be rejected before any forum post is created
+    b, forum = _bridge_forum()
+    status, body = _resp(asyncio.run(b.handle_egress(FakeRequest(
+        {"body": "[FINDING] incomplete", "title": "t"}))))
+    assert status == 422 and not forum.created
+
+
+def test_forum_reply_uses_send_not_create():
+    # replying into an existing post (thread_id) is a normal message, not a new forum post
+    b, _forum = _bridge_forum()
+    thread = FakeChannel(555, parent_id=123)                 # a post under the forum
+    b.client = FakeClient(thread)
+    status, body = _resp(asyncio.run(b.handle_egress(FakeRequest(
+        {"body": _finding(), "thread_id": 555}))))
+    assert status == 200 and body["ok"]
+    assert len(thread.sent) == 1                             # sent as a reply, not created
