@@ -39,7 +39,7 @@ class FakeUser:
         self.id = uid
 
     def __str__(self):
-        return "clanker-bot#0001"
+        return "agent-bot#0001"
 
 
 class FakeAuthor:

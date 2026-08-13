@@ -14,29 +14,29 @@ import enforce  # noqa: E402
 
 def _good_finding(artifact="run/x.log", sample="2", status="MEASURED", claim="inference"):
     return (
-        "[FINDING] speed-select fuse readback\n"
+        "[FINDING] retry-budget readback\n"
         f"STATUS: {status}\n"
         f"CLAIM_KIND: {claim}\n"
         "VERDICT: gate held on readback\n"
         "VERDICT_BASIS: line 44 of the archived readback\n"
-        "GATING_DIMENSION: compute throttle\n"
+        "GATING_DIMENSION: request throttle\n"
         "STATE_SHA256: abc123\n"
         f"SAMPLE_COUNT: {sample}\n"
-        "FALSIFIER: a cold-boot readback showing the fuse clear\n"
-        "FIRE_TIME_PRECONDITIONS: cold boot, driver unloaded\n"
+        "FALSIFIER: a clean-restart readback showing the setting cleared\n"
+        "FIRE_TIME_PRECONDITIONS: clean restart, service stopped\n"
         f"ARTIFACT: {artifact}\n"
-        "NEGATIVE_CONTROL: stock card readback in same session\n"
-        "DOES_NOT_PROVE: nothing about dispatch gating\n"
+        "NEGATIVE_CONTROL: baseline instance readback in same session\n"
+        "DOES_NOT_PROVE: nothing about request dispatch\n"
     )
 
 
 def _good_experiment():
     return (
-        "[EXPERIMENT] probe the speed-select fuse\n"
-        "STEPS: cold boot, read reg 0x1234, layer next\n"
-        "TARGET: 0x1234 offset in fuse block\n"
-        "ENV_STAMP: drv 550.x, VBIOS 1.2, card SN123, kernel 6.9, bench A\n"
-        "FIRE_TIME_PRECONDITIONS: driver unloaded\n"
+        "[EXPERIMENT] probe the retry-budget setting\n"
+        "STEPS: clean restart, read setting at 0x1234, layer next\n"
+        "TARGET: 0x1234 offset in the config block\n"
+        "ENV_STAMP: svc 550.x, cfg 1.2, instance SN123, kernel 6.9, env A\n"
+        "FIRE_TIME_PRECONDITIONS: service stopped\n"
         "PASS_FAIL: pass if bit12 reads 0 after write\n"
         "FALSIFIER: bit12 stays 1\n"
     )
@@ -59,14 +59,14 @@ def test_good_experiment_passes():
 
 
 def test_finding_missing_field_rejected():
-    body = _good_finding().replace("FALSIFIER: a cold-boot readback showing the fuse clear\n", "")
+    body = _good_finding().replace("FALSIFIER: a clean-restart readback showing the setting cleared\n", "")
     r = enforce.check_egress(body)
     assert not r.ok and "FALSIFIER" in r.reason
 
 
 # strict sec 10: HYPOTHESIS/ARTIFACT/CORRECTION are TAG-only - contents deferred to review.
 def test_hypothesis_needs_only_tag_not_fields():
-    r = enforce.check_egress("[HYPOTHESIS] maybe the fuse remaps rows; cheapest test is a cold readback")
+    r = enforce.check_egress("[HYPOTHESIS] maybe the setting remaps on restart; cheapest test is a clean-restart readback")
     assert r.ok and r.tag == "[HYPOTHESIS]"
 
 
@@ -76,7 +76,7 @@ def test_correction_needs_only_tag_not_fields():
 
 
 def test_artifact_tag_passes():
-    r = enforce.check_egress("[ARTIFACT] fuse dump, my own RE, image sn123 v1.2 sha256 abcd, study it")
+    r = enforce.check_egress("[ARTIFACT] config dump, my own capture, source sn123 v1.2 sha256 abcd, study it")
     assert r.ok and r.tag == "[ARTIFACT]"
 
 
@@ -131,7 +131,7 @@ def test_proven_with_multi_sample_passes():
 
 
 def test_single_sample_ok_field_allows_proven():
-    body = _good_finding(sample="1", status="PROVEN") + "SINGLE_SAMPLE_OK: fuse is a one-shot event\n"
+    body = _good_finding(sample="1", status="PROVEN") + "SINGLE_SAMPLE_OK: the migration is a one-shot event\n"
     r = enforce.check_egress(body)
     assert r.ok
 
@@ -198,13 +198,13 @@ def test_overlength_direct_void_not_bypassed_by_padding(tmp_path):
 
 def test_overlength_artifact_also_routes_to_attachment():
     # N1: [ARTIFACT] is NOT exempt from the length ceiling - a >30-line dump must attach, not inline.
-    body = "[ARTIFACT] firmware dump\n" + "\n".join(f"DEADBEEF{i:04x}" for i in range(200))
+    body = "[ARTIFACT] metrics dump\n" + "\n".join(f"DEADBEEF{i:04x}" for i in range(200))
     r = enforce.check_egress(body)
     assert not r.ok and r.route_as_attachment and r.tag == "[ARTIFACT]"
 
 
 def test_short_artifact_still_passes_inline():
-    r = enforce.check_egress("[ARTIFACT] fuse dump, my own RE, image sn123 v1.2 sha256 abcd, study it")
+    r = enforce.check_egress("[ARTIFACT] config dump, my own capture, source sn123 v1.2 sha256 abcd, study it")
     assert r.ok and not r.route_as_attachment
 
 
@@ -223,13 +223,13 @@ def test_halt_token_hyphen_variant_recognized():
 
 
 def test_thread_closed_hyphen_variant_recognized():
-    hyphen = enforce.THREAD_CLOSED_PREFIX.replace("—", "-") + " learned: needs a cold boot"
+    hyphen = enforce.THREAD_CLOSED_PREFIX.replace("—", "-") + " learned: needs a clean restart"
     assert enforce.is_thread_closed_line(hyphen)
     assert enforce.check_egress(hyphen).ok
 
 
 def test_thread_closed_line_passes_untagged():
-    assert enforce.check_egress(enforce.THREAD_CLOSED_PREFIX + " learned: fuse path needs a cold boot").ok
+    assert enforce.check_egress(enforce.THREAD_CLOSED_PREFIX + " learned: retry path needs a clean restart").ok
 
 
 def test_offtopic_prose_not_a_free_pass():   # was a hole: any "OFF-TOPIC..." prefix passed
@@ -245,14 +245,14 @@ def test_ingress_marks_untrusted_and_stamps_bridge_provenance():
 
 
 def test_ingress_flags_actuation_phrasing():
-    for phrase in ("flash the vbios now", "burn the fuse", "run it on your card",
-                   "reset the card", "blow the fuse", "program the eeprom"):
+    for phrase in ("deploy to prod now", "delete the production database", "run it on your server",
+                   "push to production", "rm -rf the volume", "reboot the host"):
         r = enforce.wrap_ingress("1", "x", phrase)
         assert r.actuation_flagged, phrase
 
 
-def test_ingress_does_not_flag_benign_words():   # was a hole: bare burn/flash/trigger
-    for phrase in ("the burn-in test passed", "flash memory latency", "trigger condition met"):
+def test_ingress_does_not_flag_benign_words():   # was a hole: bare deploy/drop/run
+    for phrase in ("the deployment pipeline passed", "a drop in latency", "run the analysis locally"):
         r = enforce.wrap_ingress("1", "x", phrase)
         assert not r.actuation_flagged, phrase
 

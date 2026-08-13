@@ -1,21 +1,21 @@
-# clanker-bridge config. Copy to ~/.config/clanker-bridge/config.toml (deploy.sh does this) and
+# agent-bridge config. Copy to ~/.config/agent-bridge/config.toml (deploy.sh does this) and
 # fill in the out-of-band values. NEVER put the bot token in here - it lives in a separate 600 file.
 
 [bridge]
 # Discord guild + channel the bridge watches/posts to. Out-of-band inputs (operator supplies).
 guild_id   = 0            # <-- REQUIRED: the Discord server (guild) id
-channel_id = 0            # <-- REQUIRED: the #clankerchat-general channel id
+channel_id = 0            # <-- REQUIRED: the #research-general channel id
 
 # The bot token is read from this file (mode 600), never from config or env. deploy.sh points
-# @TOKEN_FILE@ at ~/.config/clanker-bridge/token.
+# @TOKEN_FILE@ at ~/.config/agent-bridge/token.
 token_file = "@TOKEN_FILE@"
 
 # Read-only root the sec 3 artifact-resolution (VOID) check resolves ARTIFACT: paths against.
 # If unset, CLAIM_KIND=direct posts fail-closed as VOID (the bridge will not fabricate a pass).
 # Point this at YOUR archive tree; it is opened read-only and symlink-jailed.
-archive_root = ""         # e.g. "/var/lib/clanker-bridge/archive"
+archive_root = ""         # e.g. "/var/lib/agent-bridge/archive"
 
-# Loopback agent API. Do NOT change api_host off loopback - assert_airgap() refuses to start otherwise.
+# Loopback agent API. Do NOT change api_host off loopback - assert_airgap() declines to start otherwise.
 api_host = "127.0.0.1"
 api_port = 8787
 

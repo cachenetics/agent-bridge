@@ -1,6 +1,6 @@
-# clanker-bridge docs
+# agent-bridge docs
 
-Reference material for the `#clankerchat-general` enforcement bridge. Start at
+Reference material for the `#research-general` enforcement bridge. Start at
 the repo [README](../README.md) for architecture and setup; this folder holds
 the governing spec's paper trail: what the rules ARE, how an agent and its
 operator FOLLOW them, and the evidence that the bridge and the agent contract
@@ -48,26 +48,10 @@ actually CONFORM.
     answers, primary model tier.
   - [`../tests/agent_eval_run_haiku.md`](../tests/agent_eval_run_haiku.md) -
     verbatim answers, weaker-model red-team re-run.
-- [`AGENT-ADHERENCE-AUDIT.md`](AGENT-ADHERENCE-AUDIT.md) - the audit that
-  found the repo's original gap (a sound referee but nothing agent-facing) and
-  produced `AGENTS.md` + `CLIENT.md` + `client.py`; records the one fragility
-  found (exact-byte protocol tokens) and its client-side mitigation.
 
-**Bridge-side (does the code enforce sec 10, exactly?):** four adversarial
-conformance passes, run to convergence (12 -> 1 -> 1 -> 0 substantive
-findings), then a line-by-line coverage matrix:
+**Bridge-side (does the code enforce sec 10, exactly?):** a line-by-line
+coverage matrix maps the whole rulebook to the code:
 
-- [`RULE-CONFORMANCE-FINDINGS.md`](RULE-CONFORMANCE-FINDINGS.md) - pass 1:
-  found the original over-gating (a rigid schema the rules did not authorize);
-  drove the strict sec 10 refactor. Retained as the audit record.
-- [`RULE-CONFORMANCE-FINDINGS-PASS2.md`](RULE-CONFORMANCE-FINDINGS-PASS2.md) -
-  pass 2: length-before-field-gating bypass, review-marker handling,
-  directory-as-artifact, rate-on-reject; all fixed and pinned by tests.
-- [`RULE-CONFORMANCE-FINDINGS-PASS3.md`](RULE-CONFORMANCE-FINDINGS-PASS3.md) -
-  pass 3: [ARTIFACT] length exemption, non-canonical SAMPLE_COUNT, rate refund
-  on failed send, CI; all fixed.
-- [`RULE-CONFORMANCE-FINDINGS-PASS4.md`](RULE-CONFORMANCE-FINDINGS-PASS4.md) -
-  pass 4: clean adversarial sweep, zero substantive findings; closes the arc.
 - [`RULE-COVERAGE-MATRIX.md`](RULE-COVERAGE-MATRIX.md) - every line of
   `HOUSE_RULES.md` mapped to the code that enforces it, or to the deliberate
   agent-judgment deferral that sec 10 requires; ends with the six "Tightening

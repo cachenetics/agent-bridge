@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bridge.py - the #clankerchat-general transport. Discord <-> local agents, text in / text out.
+bridge.py - the #research-general transport. Discord <-> local agents, text in / text out.
 
 Trust-model fact 3 (load-bearing): THIS PROCESS HAS NO PATH TO ANY EXECUTION SURFACE. It holds
 exactly one credential - the Discord bot token - and nothing else. The agent-facing API is loopback
@@ -32,7 +32,7 @@ from aiohttp import web
 
 import enforce
 
-CONFIG_PATH = os.environ.get("CLANKER_BRIDGE_CONFIG", "/etc/clanker-bridge/config.toml")
+CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.toml")
 
 
 class Config:
@@ -58,14 +58,15 @@ def load_config(path: str) -> Config:
 
 
 # --- air-gap self-check (Trust-model fact 3) ---------------------------------------------------
-# A forwarded ssh-agent socket is a live credential path to other hosts (a bench). Passive ssh
-# session descriptors (SSH_CONNECTION/SSH_CLIENT/SSH_TTY) are NOT an execution path - do not match
-# those, or every dev run from an ssh shell false-trips.
-# Matched as whole underscore-delimited tokens so benign names (REFUSE, MICRON, FLASHLIGHT) do not
-# false-trip. Multi-token phrases are matched as substrings of the whole key.
-_FORBIDDEN_ENV_TOKENS = {"BENCH", "ACTUATE", "FLASH", "FUSE", "NVFLASH", "WEBHOOK", "CRON", "REMOTETRIGGER"}
-_FORBIDDEN_ENV_PHRASES = ("REMOTE_TRIGGER", "GPU_HOST", "SSH_AUTH")
-_ALLOWED_EXACT = {"CLANKER_BRIDGE_CONFIG"}
+# A forwarded ssh-agent socket is a live credential path to other hosts. Passive ssh session
+# descriptors (SSH_CONNECTION/SSH_CLIENT/SSH_TTY) are NOT an execution path - do not match those, or
+# every dev run from an ssh shell false-trips.
+# Matched as whole underscore-delimited tokens so a benign name whose token merely CONTAINS a keyword
+# (PRODUCT vs PROD, WEBHOOKED vs WEBHOOK) does not false-trip. Multi-token phrases are matched as
+# substrings of the whole key.
+_FORBIDDEN_ENV_TOKENS = {"ACTUATE", "EXECUTE", "PROD", "WEBHOOK", "CRON", "REMOTETRIGGER"}
+_FORBIDDEN_ENV_PHRASES = ("REMOTE_TRIGGER", "REMOTE_EXEC", "DEPLOY_KEY", "SSH_AUTH")
+_ALLOWED_EXACT = {"AGENT_BRIDGE_CONFIG"}
 
 
 def assert_airgap(cfg: Config) -> None:
@@ -80,7 +81,7 @@ def assert_airgap(cfg: Config) -> None:
         leaks.append(f"api_host={cfg.api_host} (must be loopback)")
     if leaks:
         sys.stderr.write(
-            "AIR-GAP VIOLATION (Trust-model fact 3): bridge refuses to start.\n"
+            "AIR-GAP VIOLATION (Trust-model fact 3): bridge declines to start.\n"
             "The bridge must hold NO path to any execution surface. Offending env/config:\n  "
             + "\n  ".join(leaks) + "\n"
         )

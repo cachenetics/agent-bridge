@@ -1,4 +1,4 @@
-# clanker-bridge posting schema (machine-enforced fields)
+# agent-bridge posting schema (machine-enforced fields)
 
 `HOUSE_RULES` sec 10 requires the bridge to mechanically reject `[FINDING]` / `[EXPERIMENT]` posts
 "unless the sec 1 required fields are present." A bridge cannot detect "the negative control is
@@ -45,8 +45,8 @@ field-gated by the bridge - sec 4 adversarial review and sec 5 correction discip
 | Label | sec 1 item |
 |---|---|
 | `STEPS` | Exact steps |
-| `TARGET` | target addresses/offsets |
-| `ENV_STAMP` | environment stamp (sec 8: driver/fw, VBIOS, card serial, kernel, bench, snapshot) |
+| `TARGET` | the identifier/offset/component under test |
+| `ENV_STAMP` | environment stamp (sec 8: system/software version, config version, instance id, OS/kernel, environment, snapshot) |
 | `FIRE_TIME_PRECONDITIONS` | FIRE_TIME_PRECONDITIONS |
 | `PASS_FAIL` | pass/fail criteria |
 | `FALSIFIER` | FALSIFIER stated before the result |
@@ -58,6 +58,6 @@ reproducibility judgment, sec 8, left to review).
 
 Scope/off-topic (sec 9), "prose outran the archive" (3.11), closure verification and
 negative-vs-positive reconciliation (3.14-15), whether a control is really a control (sec 2),
-whether every cited register/value pair is grepable in the artifact (sec 3), and the contents of
+whether every cited measurement/value pair is grepable in the artifact (sec 3), and the contents of
 `[HYPOTHESIS]`/`[ARTIFACT]`/`[CORRECTION]`. These need reasoning and independent re-testing; the
 bridge asserts only *well-formed* and *cannot-smuggle-actuation*, never *correct*.
