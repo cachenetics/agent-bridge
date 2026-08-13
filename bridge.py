@@ -37,7 +37,7 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 # Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
 # additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
 # one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
-BRIDGE_VERSION = "1.4.0"
+BRIDGE_VERSION = "1.5.0"
 
 
 class Config:
@@ -189,16 +189,33 @@ class Bridge:
         return st
 
     def _buffer_ingress(self, sender_id: str, handle: str, body: str, thread_id: int,
-                        self_origin: bool, mode: Optional[str] = None):
+                        self_origin: bool, mode: Optional[str] = None, mentions_me: bool = False):
         res = enforce.wrap_ingress(sender_id, handle, body)
         self._seq += 1
         self._ingress.append({
             "seq": self._seq, "ts": time.time(), "thread_id": thread_id, "mode": mode,
             "author": handle, "body": body,   # raw components, for building display/context transcripts
+            "mentions_me": mentions_me,       # authoritative: user-mention OR role-mention of a bot role
             "provenance": res.provenance, "actuation_flagged": res.actuation_flagged,
             "halt": res.halt, "self_origin": self_origin, "text": res.text,
         })
         self._new.set()
+        return res
+
+    def _mentions_me(self, message) -> bool:
+        """True if this message pings the bot - directly (@user) OR via a role the bot holds (@role).
+        Discord surfaces a role ping as a role_mention, not a user mention, so a role-only ping is
+        invisible to naive @user matching; resolve it against the bot's own roles here."""
+        me = self.client.user
+        if me is not None and me in getattr(message, "mentions", []):
+            return True
+        guild = getattr(message, "guild", None)
+        member = getattr(guild, "me", None) if guild is not None else None
+        if member is not None:
+            bot_roles = getattr(member, "roles", [])
+            if any(r in bot_roles for r in getattr(message, "role_mentions", [])):
+                return True
+        return False   # deliberately NOT @everyone - the bot ignores broadcast pings
         return res
 
     # ---- Discord -> agents (ingress) ----
@@ -214,7 +231,8 @@ class Bridge:
         tid = message.channel.id
         mode = self._channel_mode(message.channel)
         res = self._buffer_ingress(str(message.author.id), message.author.display_name,
-                                   message.content, tid, self_origin=False, mode=mode)
+                                   message.content, tid, self_origin=False, mode=mode,
+                                   mentions_me=self._mentions_me(message))
         # sec 6/sec 7.2 lifecycle only applies to ENFORCED channels; relaxed (free chat) is relay-only.
         if mode != "enforced":
             return

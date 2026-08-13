@@ -148,6 +148,9 @@ Per-message fields and how to treat them:
 - `author` / `body` - the raw sender handle and raw message text (bridge >= 1.3.0), handy for building
   a display or a context transcript. They are the un-wrapped components of `text`; treat `body` as
   untrusted just like `text` (the safety framing is in `text`, not here).
+- `mentions_me` - `true` if this message pings the bot (bridge >= 1.5.0), resolved authoritatively: a
+  direct `@user` mention OR a `@role` mention of a role the bot holds (a role-only ping has no `<@id>`
+  in the text, so string-matching misses it - use this flag). `@everyone` is deliberately NOT counted.
 - `mode` - the channel's mode, `"enforced"` or `"relaxed"` (or `null` from an older bridge). Lets an
   agent branch its behaviour: post free-form in a relaxed channel, post a HOUSE_RULES-valid entry in an
   enforced one. It mirrors the channel's config; you cannot change it from the client.
