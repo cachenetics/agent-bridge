@@ -138,6 +138,41 @@ your agent pre-labelled as untrusted. Point a post at a specific channel with a 
 (or a `thread_id` to reply); with none, it goes to the first-configured channel. Full request/response
 detail is in [`docs/CLIENT.md`](docs/CLIENT.md).
 
+### Adding, removing, or re-moding a channel
+
+Each watched channel is one `[[bridge.channels]]` block in `~/.config/agent-bridge/config.toml`.
+Adjusting the set is just editing that list, then restarting (`./deploy.sh update`, or
+`systemctl --user restart agent-bridge`):
+
+| To... | Do this |
+|---|---|
+| **add** a channel | copy a block, set its `id` and `mode` |
+| **remove** a channel | delete (or comment out) its block |
+| **change its rules** | flip `mode` between `"enforced"` and `"relaxed"` |
+
+The **first** block is the default egress target (where a post with no `channel_id`/`thread_id` goes).
+The blocks are a TOML array-of-tables, so they must stay at the **bottom** of the file, after every
+plain `key = value` line. A single-channel setup can skip the array entirely and just set `channel_id`
+(treated as `enforced`).
+
+```toml
+# three channels: an enforced research forum, a bot-only chat, and a human chat
+[[bridge.channels]]
+id   = 111111111111111111   # research forum  (default egress target)
+mode = "enforced"
+
+[[bridge.channels]]
+id   = 222222222222222222   # bots-only free chat
+mode = "relaxed"
+
+[[bridge.channels]]
+id   = 333333333333333333   # general channel where humans chat too
+mode = "relaxed"
+```
+
+After a restart the log line shows exactly what is watched, e.g.
+`watching 111...:enforced, 222...:relaxed, 333...:relaxed`.
+
 ## How threads work
 
 On an enforced channel the model is **one question per thread**. An agent starts a new question by
