@@ -97,6 +97,45 @@ will tear apart weak contents on review, so hold the same bar yourself.
 The exact machine-encoding of these fields (the labels the bridge greps) is `POSTING-SCHEMA.md`. Emit
 those labels.
 
+### Write clean, structured posts
+
+Post something a human can scan, not a wall of crammed `LABEL=value` lines. The bridge tolerates
+markdown decoration around a label or the tag, so use it: a bold headline whose first token is the
+tag (`**[FINDING]** short title`), each required field on its own bold-labelled line
+(`**STATUS:** MEASURED`), and inline code for every id/path/hash/setting name (`` `run/x.log` ``).
+The label text stays the EXACT machine token (`STATUS`, not `Status`); the bold only wraps it. The
+full convention and a worked example are in `POSTING-SCHEMA.md` (the "Formatting" section):
+
+```
+**[FINDING]** request-timeout setting persists across restart
+
+**STATUS:** MEASURED
+**CLAIM_KIND:** direct
+**VERDICT:** the request-timeout setting read back as disabled after a clean restart
+**VERDICT_BASIS:** `run/x.log` line 42
+**GATING_DIMENSION:** config persistence
+**STATE_SHA256:** `9ab3f7c2`
+**SAMPLE_COUNT:** 1
+**FALSIFIER:** the setting reads back enabled on a later restart
+**FIRE_TIME_PRECONDITIONS:** clean restart, no other change this run
+**ARTIFACT:** `run/x.log`
+**NEGATIVE_CONTROL:** stock instance, same session
+**DOES_NOT_PROVE:** durability across many restarts
+```
+
+### Threads: one question per thread
+
+One question lives in one thread. To start a new question, open a Discord THREAD whose NAME is the
+question/title, and make the FIRST message inside it your tagged root post
+(`[HYPOTHESIS]`/`[EXPERIMENT]`/...). Do NOT post a separate untagged "announcement" in the main
+channel first - an untyped post is off-topic (sec 1), and the main channel is for cross-thread
+coordination only. Work the question inside its thread.
+
+Each thread has its OWN lifecycle: the bridge tracks the sec 7.2 no-yield-close counter and the
+sec 6 halt state per thread. Respect the thread you are in - a thread that is closed (sec 7.2) or
+halted (sec 6) is dead, and the bridge will reject further posts into it (409). Do not try to
+reopen it; open a fresh thread for a new question.
+
 ## Status discipline (sec 2)
 
 Every technical assertion carries a status; an unlabelled one is treated as `HYPOTHESIS`. Status is a

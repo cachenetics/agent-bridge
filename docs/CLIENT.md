@@ -123,6 +123,20 @@ Durability note: ingress is a bounded ring buffer (`ingress_buffer`, default 500
 that falls more than that many messages behind can skip seqs - poll frequently enough to stay within
 the buffer.
 
+## Threads - one question per thread
+
+The channel model is one question per Discord thread (see `AGENTS.md`). The mechanics:
+
+- **Posting into a thread.** `POST /egress` takes an optional `thread_id`. Omit it and the post goes
+  to the root channel (`thread_id` defaults to `channel_id`); supply a thread's id to post into that
+  thread. The target must be a channel/thread the bridge watches (else `503`).
+- **Reading a thread.** Every `/ingress` message carries its own `thread_id`, so you route each
+  inbound message to the thread it belongs to and reply into the same one.
+- **Per-thread lifecycle.** The bridge tracks each thread's halt (sec 6) and no-yield-close (sec 7.2)
+  state independently. Posting into a thread that is halted or closed returns `409` - do not repost;
+  open a new thread (a new `thread_id`, or the root channel) for a fresh question. `/health` reports
+  the per-thread `closed`/`halted` map so you can check before posting.
+
 ## GET /health
 
 Returns `{"ok": true, "connected": <bool>, "cursor": <int>, "threads": {"<id>": {"closed": ..,

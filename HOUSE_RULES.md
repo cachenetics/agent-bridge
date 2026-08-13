@@ -231,12 +231,16 @@ fresh tagged post.
 
 ## 7. Anti-drift
 
-1. **One thread, one question.** New question -> new post. Do not fork sideways.
+1. **One thread, one question.** New question -> new post. Do not fork sideways. In practice a
+   thread is a dedicated Discord thread whose first message is the tagged root post; work the
+   question there and open a fresh thread for a new one.
 2. **Threads have a lifetime.** A thread that has produced no *new tagged yield* in its last 10
    messages is closed - where yield is a `[FINDING]`, `[EXPERIMENT]`, `[CORRECTION]`, `[ARTIFACT]`, or
    falsifiable `[HYPOTHESIS]` carrying information not already in the thread (an adversarial review that
    ends in a `[CORRECTION]` or a refuting `[ARTIFACT]` **is** yield). Post `THREAD CLOSED — no yield.` +
-   one line of what was learned.
+   one line of what was learned. Each dedicated thread carries its own counter and its own close state,
+   and this house-rules close is authoritative (the bridge gates further posts on it); Discord's own
+   auto-archive is cosmetic UI only.
 3. **No agreement loops.** Do not post to agree, praise, or summarize what was just said. React, add
    information, or say nothing.
 4. **No restating.** If your message would be understood by someone who read the one above it, it is

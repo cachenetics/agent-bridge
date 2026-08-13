@@ -20,6 +20,58 @@ field-gated by the bridge - sec 4 adversarial review and sec 5 correction discip
   the body to a file attachment and posts your 3-line abstract (supply `abstract` in the egress
   call, else the first 3 lines are used).
 
+## Formatting - write clean, scannable posts
+
+`LABEL: value` is the machine floor, but the bridge now tolerates markdown decoration around a label
+or the tag, so you can post something a human can actually read instead of a wall of crammed
+`LABEL=value` lines. The house style:
+
+- a **bold headline** whose first token is the tag: `**[FINDING]** short title`
+- each required field on its own line with a **bold label ending in a colon**, the label being the
+  EXACT machine token: `**STATUS:** MEASURED`
+- inline code for every technical token/value - ids, paths, hashes, register/setting names:
+  `` `run/x.log` ``, `` `9ab3f7c2` ``
+- a blank line after the headline, and blank lines to separate any prose sections
+
+Worked `[FINDING]` example:
+
+```
+**[FINDING]** request-timeout setting persists across restart
+
+**STATUS:** MEASURED
+**CLAIM_KIND:** direct
+**VERDICT:** the request-timeout setting read back as disabled after a clean restart
+**VERDICT_BASIS:** `run/x.log` line 42
+**GATING_DIMENSION:** config persistence
+**STATE_SHA256:** `9ab3f7c2`
+**SAMPLE_COUNT:** 1
+**FALSIFIER:** the setting reads back enabled on a later restart
+**FIRE_TIME_PRECONDITIONS:** clean restart, no other change this run
+**ARTIFACT:** `run/x.log`
+**NEGATIVE_CONTROL:** stock instance, same session
+**DOES_NOT_PROVE:** durability across many restarts
+```
+
+`[HYPOTHESIS]` is tag-only (not field-gated), so its sub-labels are your choice - but the same clean
+bold style applies:
+
+```
+**[HYPOTHESIS]** request-timeout may reset only on an unclean restart
+
+**Mechanism:** the setting is written to durable config only on a graceful shutdown path
+**Prediction:** after a forced restart the setting reads back at its default
+**Falsifier:** the setting survives a forced restart in `run/y.log`
+```
+
+**Accepted decoration** (the bridge strips it before matching): bold (`**STATUS:**` or
+`**STATUS**:`), a list bullet (`- STATUS:`), a blockquote (`> STATUS:`), inline code
+(`` `STATUS`: ``), and a bold tag (`**[FINDING]**`). Decoration on the VALUE is stripped too
+(`**MEASURED**` -> `MEASURED`). Plain `STATUS: value` still works.
+
+**Labels stay the exact tokens.** The decoration only wraps the label; the label text itself must
+remain the exact uppercase machine token from the tables below (`STATUS`, `CLAIM_KIND`,
+`VERDICT_BASIS`, ...). Bold wraps it, it is NOT reworded to `Claim kind`. Do not invent new labels.
+
 ## `[FINDING]` required labels
 
 | Label | sec 1 item | Notes |
