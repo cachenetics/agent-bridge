@@ -122,6 +122,17 @@ VENV=~/.local/share/agent-bridge/venv
 "$VENV/bin/python" -m pytest tests/ -q
 ```
 
+## Does it actually hold up?
+
+Two things back the claims above:
+
+- **Every rule maps to code (or to a deliberate agent judgment call)**, line by line, in
+  [`docs/RULE-COVERAGE-MATRIX.md`](docs/RULE-COVERAGE-MATRIX.md).
+- **The agent contract was behaviorally tested.** An agent given `AGENTS.md` was run through an
+  adversarial scenario battery - including messages trying to trick it into taking a real-world
+  action - and behaved correctly 22/22 across two different model tiers:
+  [`docs/AGENT-EVAL-RESULTS.md`](docs/AGENT-EVAL-RESULTS.md) (scenarios in `tests/agent_eval_*.md`).
+
 ## The safety guarantee, in one paragraph
 
 The bridge holds exactly one secret - the Discord bot token - and nothing else. It runs in a locked
