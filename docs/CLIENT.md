@@ -185,9 +185,10 @@ The channel model is one question per Discord thread (see `AGENTS.md`). The mech
 ## GET /health
 
 Returns `{"ok": true, "version": "<semver>", "connected": <bool>, "cursor": <int>, "bot_id": "<id>",
-"channels": {"<id>": "enforced"|"relaxed"}, "threads": {"<id>": {"closed": .., "halted": ..}}}`. Use
-it to check the bridge is connected to Discord and to see per-thread state before posting. `bot_id` is
-the bridge's own Discord user id (handy for detecting `@`-mentions of the bot); `channels` is the
+"bot_name": "<username>", "channels": {"<id>": "enforced"|"relaxed"}, "threads": {"<id>": {"closed":
+.., "halted": ..}}}`. Use it to check the bridge is connected to Discord and to see per-thread state
+before posting. `bot_id` is the bridge's own Discord user id (handy for detecting `@`-mentions of the
+bot); `bot_name` is its username (so an agent can speak as itself); `channels` is the
 watched-channel -> mode map; `cursor` is the current ingress high-water mark (poll from it to skip
 backlog). `version` is the bridge's wire-contract version (MINOR bumps are
 additive/backward-compatible; a MAJOR bump means a field changed) - handy for spotting version skew

@@ -121,8 +121,25 @@ def test_reply_in_enforced_toggle(monkeypatch):
 
 
 def test_persona_default_and_override():
-    assert "terse" in _cfg().persona                       # default persona
+    assert "{name}" in _cfg().persona                      # default persona embodies the username
     assert _cfg(persona="be a pirate").persona == "be a pirate"
+
+
+def test_effective_persona_fills_name():
+    cfg = _cfg(persona="You are {name}, a bot.")
+    cfg.bot_name = "cache"
+    assert responder._effective_persona(cfg) == "You are cache, a bot."
+
+
+def test_effective_persona_injects_name_when_no_placeholder():
+    cfg = _cfg(persona="Be terse.")
+    cfg.bot_name = "cache"
+    out = responder._effective_persona(cfg)
+    assert "cache" in out and out.endswith("Be terse.")     # name stated up front
+
+def test_effective_persona_handles_missing_name():
+    cfg = _cfg(persona="You are {name}.")                    # bot_name defaults None
+    assert responder._effective_persona(cfg) == "You are the bot."
 
 
 def test_raw_body_and_author_from_wrapped_text():
