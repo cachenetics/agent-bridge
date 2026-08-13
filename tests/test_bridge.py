@@ -24,14 +24,22 @@ import enforce  # noqa: E402
 
 
 # --- fakes ------------------------------------------------------------------------------------
+class _Sent:
+    def __init__(self, mid):
+        self.id = mid
+
+
 class FakeChannel:
     def __init__(self, cid, parent_id=None):
         self.id = cid
         self.parent_id = parent_id
         self.sent = []       # list of (content, has_file)
+        self._next = 5000
 
     async def send(self, content=None, file=None):
         self.sent.append((content, file is not None))
+        self._next += 1
+        return _Sent(self._next)   # discord.py returns the created Message
 
 
 class FakeUser:
@@ -132,6 +140,7 @@ def test_valid_finding_posts_and_fans_out():
     status, body = _resp(asyncio.run(b.handle_egress(FakeRequest(
         {"body": _finding(), "agent_handle": "agentA"}))))
     assert status == 200 and body["ok"]
+    assert body.get("message_id")                    # egress returns the sent message id
     assert len(chan.sent) == 1                       # posted to Discord once
     fanned = [m for m in b._ingress if m["self_origin"]]
     assert len(fanned) == 1                          # sibling agents can see it via /ingress
@@ -192,3 +201,28 @@ def test_rate_limiter_evicts_after_window():
     assert rl.allow(1000.0) and rl.allow(1000.5)
     assert not rl.allow(1001.0)                     # third within the minute is blocked
     assert rl.allow(1061.1)                         # after 60s the window has evicted
+
+
+# --- air-gap: env scan is advisory, non-loopback bind is fatal --------------------------------
+def _cfg(**b):
+    b.setdefault("channel_id", 1)
+    b.setdefault("token_file", "/dev/null")
+    return bridge.Config({"bridge": b})
+
+
+def test_airgap_suspicious_env_is_advisory_not_fatal():
+    # a benign var whose name resembles an execution surface must WARN, not refuse startup
+    os.environ["MY_DEPLOY_WEBHOOK_URL"] = "x"
+    try:
+        bridge.assert_airgap(_cfg())               # must not raise
+    finally:
+        os.environ.pop("MY_DEPLOY_WEBHOOK_URL", None)
+
+
+def test_airgap_nonloopback_bind_is_fatal():
+    with pytest.raises(SystemExit):
+        bridge.assert_airgap(_cfg(api_host="0.0.0.0"))
+
+
+def test_airgap_loopback_ok():
+    bridge.assert_airgap(_cfg(api_host="127.0.0.1"))   # must not raise

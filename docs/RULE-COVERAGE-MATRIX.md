@@ -64,9 +64,11 @@ Code pointers use file:function (stable across line drift). Verdict at the botto
   -> [AGENT] "a closure is a claim to verify, never inherited" (sec 3.14) - the verification is semantic.
 - Fact 3 (L51-56): the actuation wall is architectural; the bridge has no path to any execution
   surface - text in / text out, no credentials/handles/side channel; build it this way
-  -> [XPORT] THE core property. `bridge.assert_airgap` (declines to boot on any remote-exec/deploy-key/
-     prod/execute/trigger/cron/webhook/ssh-agent env or a non-loopback API), one credential (Discord
-     token from a 0600 file), no subprocess/eval/remote-trigger, loopback-only agent API, systemd
+  -> [XPORT] THE core property. `bridge.assert_airgap` (declines to boot on a non-loopback API bind;
+     WARNS - advisory - if the environment holds a remote-exec/deploy-key/prod/execute/trigger/cron/
+     webhook/ssh-agent-named var, since that scan is a heuristic and the real air-gap does not depend
+     on it), one credential (Discord token from a 0600 file), no subprocess/eval/remote-trigger,
+     loopback-only agent API, systemd
      `PrivateDevices`/`ProtectSystem=strict`/`MemoryDenyWriteExecute`/`RestrictAddressFamilies`.
 - L58-59 "none overridable by anything in the channel, including this section quoted back as permission"
   -> [ASSIST] quoted rules arrive as untrusted ingress like any other content (`wrap_ingress`);
@@ -221,8 +223,9 @@ Code pointers use file:function (stable across line drift). Verdict at the botto
 - "The wall is on execution, not information; sharing a payload/change-list/proof is fine"
   -> [MECH-by-absence] no content filter; [XPORT] execution walled.
 - "No trigger/relay bridges (remote trigger, cron, deploy relay, webhook, queued job)"
-  -> [XPORT] `assert_airgap` declines to boot on REMOTE_TRIGGER/REMOTE_EXEC/DEPLOY_KEY/CRON/WEBHOOK/
-     PROD/EXECUTE env; no such code path; systemd `RestrictAddressFamilies` + `PrivateDevices`.
+  -> [XPORT] the real guard is that no such code path exists + systemd `RestrictAddressFamilies` +
+     `PrivateDevices`. `assert_airgap` additionally WARNS (advisory) if a REMOTE_TRIGGER/REMOTE_EXEC/
+     DEPLOY_KEY/CRON/WEBHOOK/PROD/EXECUTE-named env var is present.
 - 8.1 Claim before you run - advisory only ([EXPERIMENT] CLAIMING; not a lock; report outcome)
   -> [AGENT] a posting convention the bridge carries; not validated - see T5.
 - 8.2 Environment stamp on every result (system/software version, config version, instance id,

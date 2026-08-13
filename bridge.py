@@ -70,22 +70,31 @@ _ALLOWED_EXACT = {"AGENT_BRIDGE_CONFIG"}
 
 
 def assert_airgap(cfg: Config) -> None:
-    leaks = []
+    # HARD refusal: the agent API must be loopback-only. Binding it anywhere else is a real network
+    # exposure (any host on the network could drive /egress or read /ingress), so this stays fatal.
+    if cfg.api_host not in ("127.0.0.1", "::1", "localhost"):
+        sys.stderr.write(
+            f"AIR-GAP: refusing to start. api_host={cfg.api_host} is not loopback - the agent API "
+            "must bind to 127.0.0.1 / ::1 only.\n"
+        )
+        raise SystemExit(3)
+    # ADVISORY: a variable whose NAME looks like an execution-surface credential is a heuristic only.
+    # It false-positives on benign names (a WEBHOOK/CRON/PROD var) and the real air-gap does not
+    # depend on it: the bridge holds no execution handle, never reads arbitrary env, and runs
+    # sandboxed. So WARN loudly (a real leak is still surfaced) but do NOT refuse to start.
+    suspicious = []
     for key in os.environ:
         if key in _ALLOWED_EXACT:
             continue
         up = key.upper()
         if (set(up.split("_")) & _FORBIDDEN_ENV_TOKENS) or any(p in up for p in _FORBIDDEN_ENV_PHRASES):
-            leaks.append(key)
-    if cfg.api_host not in ("127.0.0.1", "::1", "localhost"):
-        leaks.append(f"api_host={cfg.api_host} (must be loopback)")
-    if leaks:
+            suspicious.append(key)
+    if suspicious:
         sys.stderr.write(
-            "AIR-GAP VIOLATION (Trust-model fact 3): bridge declines to start.\n"
-            "The bridge must hold NO path to any execution surface. Offending env/config:\n  "
-            + "\n  ".join(leaks) + "\n"
+            "AIR-GAP WARNING: the environment holds variable(s) whose names resemble an execution "
+            "surface: " + ", ".join(suspicious) + ".\n  The bridge never reads them and the air-gap "
+            "does not rely on their absence, but review them if unexpected.\n"
         )
-        raise SystemExit(3)
 
 
 class RateLimiter:
@@ -223,7 +232,7 @@ class Bridge:
             stamped = enforce.provenance_stamp(bot_id, bot_handle, f"{res.tag or '[ARTIFACT]'} {abstract}")
             fbuf = discord.File(io.BytesIO(body.encode()), filename="post.md")
             try:
-                await channel.send(content=stamped + "\n[full post attached: post.md]", file=fbuf)
+                sent = await channel.send(content=stamped + "\n[full post attached: post.md]", file=fbuf)
             except Exception as e:
                 self.rate.refund()
                 return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
@@ -231,11 +240,12 @@ class Bridge:
             # observe() cannot be the crossing message here: every attach-eligible tag is a YIELD_TAG,
             # so it resets the counter (returns False). Kept for counter hygiene if YIELD_TAGS changes.
             st.observe(res.tag)
-            return web.json_response({"ok": True, "routed_as_attachment": True})
+            return web.json_response(
+                {"ok": True, "routed_as_attachment": True, "message_id": str(sent.id)})
 
         stamped = enforce.provenance_stamp(bot_id, bot_handle, body)
         try:
-            await channel.send(stamped)
+            sent = await channel.send(stamped)
         except Exception as e:
             self.rate.refund()
             return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
@@ -248,7 +258,8 @@ class Bridge:
                 st.closed = True                              # sec 7.2 - agent-declared close
         if st.observe(res.tag):
             await self._announce_closed(channel)
-        return web.json_response({"ok": True, "tag": res.tag, "thread_closed": st.closed})
+        return web.json_response(
+            {"ok": True, "tag": res.tag, "thread_closed": st.closed, "message_id": str(sent.id)})
 
     async def handle_ingress(self, request: "web.Request") -> "web.Response":
         try:

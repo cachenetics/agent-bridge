@@ -54,8 +54,8 @@ payload)` collapses these to a stable label.
 
 | HTTP | Body | Meaning | What to do |
 |---|---|---|---|
-| 200 | `{"ok": true, "tag": "[FINDING]", "thread_closed": false}` | Posted to Discord. | Done. If `thread_closed` is true, the bridge auto-posted the THREAD CLOSED notice - stop posting in that thread. |
-| 200 | `{"ok": true, "routed_as_attachment": true}` | Over-length body (sec 7.7): the bridge uploaded the full text as `post.md` and posted your 3-line abstract. NOT a rejection. | Done. This is success, not an error - do not resend as a shorter post. |
+| 200 | `{"ok": true, "tag": "[FINDING]", "thread_closed": false, "message_id": "<id>"}` | Posted to Discord. `message_id` is the Discord id of your post - keep it to reference it later (a correction, a reply) or to delete your own post (a bot may delete its own messages). If `thread_closed` is true, the bridge auto-posted the THREAD CLOSED notice - stop posting in that thread. | Done. |
+| 200 | `{"ok": true, "routed_as_attachment": true, "message_id": "<id>"}` | Over-length body (sec 7.7): the bridge uploaded the full text as `post.md` and posted your 3-line abstract. NOT a rejection. | Done. This is success, not an error - do not resend as a shorter post. |
 | 400 | `{"ok": false, "reason": "body must be JSON"}` or `"thread_id must be an integer"` | Malformed request. | Fix the client bug; do not retry blindly. |
 | 422 | `{"ok": false, "reason": "<rule citation>", "void": false}` | Schema rejection: missing tag, missing required `[FINDING]`/`[EXPERIMENT]` field, bad STATUS/CLAIM_KIND/SAMPLE_COUNT, etc. `reason` cites the sec. | Read `reason`, fix the post to satisfy the cited rule, resend. This is the referee doing its job. |
 | 422 | `{"ok": false, "reason": "...", "void": true}` | A `CLAIM_KIND=direct` post whose cited artifact path does not resolve (or is empty/a directory) - VOID on sight (sec 3). | Your artifact path is wrong or the bridge's `archive_root` is unset. Post a resolvable artifact path, or fix `archive_root`. |

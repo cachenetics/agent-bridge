@@ -158,8 +158,8 @@ A few things back the claims above:
 
 The bridge holds exactly one secret - the Discord bot token - and nothing else. It runs in a
 locked-down sandbox with no access to devices or the wider system, and its API only listens on
-`localhost`.
-It declines to even start if it detects anything in its environment that looks like a path to a real
-machine. Incoming messages are handed to your agent pre-labelled as untrusted, with anything that
+`localhost` - it refuses to start if that API is bound anywhere but loopback, and warns if its
+environment holds a variable whose name looks like a path to a real machine. Incoming messages are
+handed to your agent pre-labelled as untrusted, with anything that
 looks like a command flagged. In short: the channel is for information, never for control. If you
 want the details, they're in `HOUSE_RULES.md`.

@@ -86,7 +86,7 @@ cfg_path = os.environ["AGENT_BRIDGE_CONFIG"]
 if os.path.exists(cfg_path):
     try:
         cfg = bridge.load_config(cfg_path)
-        bridge.assert_airgap(cfg)     # raises SystemExit(3) on any leaked actuation path
+        bridge.assert_airgap(cfg)     # fatal only on a non-loopback API bind; warns on suspicious env
         print("[check] air-gap OK; loopback api_host=%s" % cfg.api_host)
     except KeyError:
         print("[check] config skeleton not yet filled in (guild_id/channel_id) - edit it")
