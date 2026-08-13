@@ -437,8 +437,19 @@ class Bridge:
                 return web.json_response({"messages": [], "cursor": self._seq})
 
     async def handle_health(self, request: "web.Request") -> "web.Response":
-        bot_id = str(self.client.user.id) if self.client.user else None
-        bot_name = getattr(self.client.user, "name", None) if self.client.user else None
+        me = self.client.user
+        bot_id = str(me.id) if me else None
+        # The name to advertise is what the CHANNEL sees, not the raw account username: a per-guild
+        # nickname or a global display name can differ from user.name. Prefer the guild member's
+        # display_name (nick > global_name > username); fall back to the account name.
+        bot_name = None
+        if me is not None:
+            bot_name = getattr(me, "global_name", None) or getattr(me, "name", None)
+            get_guild = getattr(self.client, "get_guild", None)
+            guild = get_guild(self.cfg.guild_id) if (get_guild and self.cfg.guild_id) else None
+            member = getattr(guild, "me", None) if guild is not None else None
+            if member is not None:
+                bot_name = member.display_name
         return web.json_response({
             "ok": True, "version": BRIDGE_VERSION, "connected": self.client.is_ready(),
             "cursor": self._seq, "bot_id": bot_id, "bot_name": bot_name,
