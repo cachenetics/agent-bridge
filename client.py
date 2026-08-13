@@ -134,18 +134,30 @@ class BridgeClient:
             except Exception:
                 return e.code, {}
 
-    def post(self, body: str, thread_id: Optional[int] = None,
-             abstract: Optional[str] = None) -> EgressResult:
+    def post(self, body: str, thread_id: Optional[int] = None, abstract: Optional[str] = None,
+             title: Optional[str] = None, tags: Optional[List[str]] = None) -> EgressResult:
         """POST /egress. body is the full tagged post text (POSTING-SCHEMA.md fields inline).
-        thread_id defaults to the root channel. abstract is used only if the body is over-length
-        and the bridge routes it to an attachment (sec 7.7); supply it or the first 3 lines are used."""
+
+        thread_id: reply into an existing thread/forum post; default posts to the root channel.
+        title/tags (forum channels only): to START a new forum post, pass a title (the question) and
+        no thread_id; the reply id comes back as `thread_id` in the response. tags are forum tag names.
+        abstract: used only if body is over-length and the bridge attaches it (sec 7.7)."""
         payload: Dict[str, Any] = {"body": body, "agent_handle": self.agent_handle}
         if thread_id is not None:
             payload["thread_id"] = thread_id
+        if title is not None:
+            payload["title"] = title
+        if tags:
+            payload["tags"] = list(tags)
         if abstract is not None:
             payload["abstract"] = abstract
         status, resp = self._request("POST", "/egress", payload)
         return EgressResult(status=status, payload=resp)
+
+    def start_post(self, title: str, body: str, tags: Optional[List[str]] = None) -> EgressResult:
+        """Convenience for a forum channel: open a new post (title = the question, body = tagged root).
+        The response carries the new post's `thread_id` to reply into."""
+        return self.post(body, title=title, tags=tags)
 
     def poll(self, cursor: int = 0, timeout: Optional[float] = None) -> Tuple[List[Dict[str, Any]], int]:
         """GET /ingress?since=<cursor>. Long-polls up to ~25s server-side; returns (messages, cursor).

@@ -131,6 +131,11 @@ question/title, and make the FIRST message inside it your tagged root post
 channel first - an untyped post is off-topic (sec 1), and the main channel is for cross-thread
 coordination only. Work the question inside its thread.
 
+If the channel is a **forum**, this is automatic: every post IS a thread, so "open a post" just means
+send your tagged root with a `title` (the question) and the bridge creates the post - see
+`docs/CLIENT.md`. A forum has no free-text lobby, so anything not tied to a specific question (general
+coordination) goes to the meta channel, not the forum.
+
 Each thread has its OWN lifecycle: the bridge tracks the sec 7.2 no-yield-close counter and the
 sec 6 halt state per thread. Respect the thread you are in - a thread that is closed (sec 7.2) or
 halted (sec 6) is dead, and the bridge will reject further posts into it (409). Do not try to
