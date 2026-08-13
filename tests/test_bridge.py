@@ -370,7 +370,8 @@ def test_chunk_message_splits_on_boundaries():
     chunks = bridge._chunk_message(text, 1900)
     assert len(chunks) > 1
     assert all(len(c) <= 1900 for c in chunks)
-    assert "".join(chunks).replace("\n", "").replace(" ", "") == text.replace("\n", "").replace(" ", "")
+    joined = "".join(chunks).replace("​", "")   # drop the continuation separators
+    assert joined.replace("\n", "").replace(" ", "") == text.replace("\n", "").replace(" ", "")
 
 
 def test_chunk_keeps_code_fences_balanced_across_split():
