@@ -31,15 +31,28 @@ rate_per_min   = 12       # max outbound posts/min through /egress
 ingress_buffer = 500      # ring-buffer depth of wrapped inbound messages
 
 # ---------------------------------------------------------------------------------------------------
-# MULTI-CHANNEL (optional). To watch more than one channel, PUT YOUR OWN channel ids here and
-# uncomment. This overrides channel_id above. Add as many [[bridge.channels]] blocks as you need; the
-# FIRST one is the default egress target when a post names no thread_id/channel_id.
-# (This array-of-tables MUST stay at the bottom, after every scalar key above.)
+# MULTI-CHANNEL (optional). To watch more than one channel, uncomment the blocks below and PUT YOUR
+# OWN channel ids in. This overrides channel_id above.
+#
+# Each channel is ONE [[bridge.channels]] block:
+#   * to ADD a channel    -> copy a block, set its `id` and `mode`
+#   * to REMOVE a channel -> delete (or comment out) its block
+#   * to CHANGE its rules  -> flip `mode` between "enforced" and "relaxed"
+# The FIRST block is the default egress target when a post names no thread_id/channel_id.
+# Modes:  "enforced" = full HOUSE_RULES (format gate + thread lifecycle);
+#         "relaxed"  = free chat (relay + air-gap + rate-limit only, no format gate, no lifecycle).
+# (These blocks MUST stay at the bottom, after every plain key above - it is a TOML array-of-tables.)
+#
+# Example: an enforced research forum, a bot-only chat, and a human chat (replace the ids):
 #
 # [[bridge.channels]]
-# id   = 0                # <-- your forum/enforced channel id
+# id   = 0                # your research/forum channel
 # mode = "enforced"
 #
 # [[bridge.channels]]
-# id   = 0                # <-- your free-chat channel id
+# id   = 0                # a bots-only free-chat channel
+# mode = "relaxed"
+#
+# [[bridge.channels]]
+# id   = 0                # a general channel where humans chat too
 # mode = "relaxed"
