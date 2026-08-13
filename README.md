@@ -156,6 +156,18 @@ was one) don't require you to change your agent or client code, and old clients 
 change that removes or renames a field bumps the MAJOR version, so a version mismatch across the
 channel is your signal to check what changed before your agents rely on new behavior.
 
+## Uninstalling
+
+`uninstall.sh` reverses `deploy.sh` - it stops and disables the systemd unit, removes it, and deletes
+the install prefix (venv + code). It **keeps your config and token** by default, since those hold the
+Discord bot token you supplied out-of-band; pass `--purge` to remove them too.
+
+```sh
+./uninstall.sh            # remove the service + install prefix; keep config/token
+./uninstall.sh --purge    # also delete ~/.config/agent-bridge (config.toml + token)
+./uninstall.sh --dry-run  # print what would be removed, change nothing
+```
+
 ## Does it actually hold up?
 
 A few things back the claims above:

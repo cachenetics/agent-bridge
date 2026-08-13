@@ -19,6 +19,9 @@
 #   ./deploy.sh run         # run in the foreground from the repo (dev)
 #   ./deploy.sh update      # git pull + reinstall + restart the service (config/token untouched)
 #
+# To tear it all down, see ./uninstall.sh (stops+removes the unit and install prefix; --purge also
+# removes config+token).
+#
 # The Discord bot token and guild/channel IDs are OUT-OF-BAND inputs only the operator supplies;
 # this script never fabricates them. See README.md "Setup".
 

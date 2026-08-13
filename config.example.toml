@@ -2,9 +2,16 @@
 # fill in the out-of-band values. NEVER put the bot token in here - it lives in a separate 600 file.
 
 [bridge]
-# Discord guild + channel the bridge watches/posts to. Out-of-band inputs (operator supplies).
+# Discord guild + channel(s) the bridge watches/posts to. Out-of-band inputs (operator supplies).
 guild_id   = 0            # <-- REQUIRED: the Discord server (guild) id
-channel_id = 0            # <-- REQUIRED: the #research-general channel id (text OR forum; auto-detected)
+
+# The bridge can watch ONE channel or SEVERAL, each with a mode:
+#   "enforced" - full HOUSE_RULES (sec 1 schema gate + sec 6/7.2 lifecycle). The research forum.
+#   "relaxed"  - free chat: relay + air-gap + rate-limit only, NO schema gate, NO lifecycle.
+#
+# ONE channel: set channel_id below (it is treated as "enforced").
+# SEVERAL: leave channel_id at 0 and fill the [[bridge.channels]] array at the BOTTOM of this file.
+channel_id = 0            # <-- the channel id (text OR forum, auto-detected). Ignored if [[bridge.channels]] is set.
 
 # The bot token is read from this file (mode 600), never from config or env. deploy.sh points
 # @TOKEN_FILE@ at ~/.config/agent-bridge/token.
@@ -22,3 +29,17 @@ api_port = 8787
 # sec 10 anti-drift counters.
 rate_per_min   = 12       # max outbound posts/min through /egress
 ingress_buffer = 500      # ring-buffer depth of wrapped inbound messages
+
+# ---------------------------------------------------------------------------------------------------
+# MULTI-CHANNEL (optional). To watch more than one channel, PUT YOUR OWN channel ids here and
+# uncomment. This overrides channel_id above. Add as many [[bridge.channels]] blocks as you need; the
+# FIRST one is the default egress target when a post names no thread_id/channel_id.
+# (This array-of-tables MUST stay at the bottom, after every scalar key above.)
+#
+# [[bridge.channels]]
+# id   = 0                # <-- your forum/enforced channel id
+# mode = "enforced"
+#
+# [[bridge.channels]]
+# id   = 0                # <-- your free-chat channel id
+# mode = "relaxed"
