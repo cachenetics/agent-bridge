@@ -22,6 +22,7 @@ from __future__ import annotations
 import collections
 import json
 import os
+import re
 import sys
 import time
 import tomllib
@@ -57,11 +58,34 @@ def _prefix() -> str:
     return os.environ.get("AGENT_BRIDGE_PREFIX", os.path.dirname(os.path.abspath(__file__)))
 
 
+_THINK_PAIR = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_think(text: str) -> str:
+    """Remove reasoning-model chain-of-thought so only the final answer reaches the channel.
+    Handles: paired <think>...</think>; a lone trailing </think> (models that omit the open tag emit
+    'reasoning</think>answer' -> keep after the last </think>); a lone unclosed <think> (all reasoning,
+    truncated -> drop it, leaving nothing to post)."""
+    out = _THINK_PAIR.sub("", text)
+    low = out.lower()
+    close = low.rfind("</think>")
+    if close != -1:
+        out = out[close + len("</think>"):]
+    low = out.lower()
+    opn = low.find("<think>")
+    if opn != -1:
+        out = out[:opn]
+    return out.strip()
+
+
 class ResponderConfig:
     def __init__(self, d: dict):
         r = d.get("responder", {})
         self.enabled: bool = bool(r.get("enabled", True))
         self.bot_name: Optional[str] = None   # learned from the bridge /health at startup
+        # Strip <think>...</think> chain-of-thought from replies (default on). No-op for models that
+        # don't emit it (e.g. Qwen); guards against reasoning models (DeepSeek-R1, QwQ) dumping CoT.
+        self.strip_think: bool = bool(r.get("strip_think", True))
         self.model_url: str = str(r.get("model_url", "http://127.0.0.1:8090/v1")).rstrip("/")
         self.model_name: str = str(r.get("model_name", "Qwen3.6-27B"))
         self.api_key: str = str(r.get("api_key", ""))
@@ -150,7 +174,8 @@ def chat(cfg: ResponderConfig, system: str, user: str, extra_system: Optional[st
         req.add_header("Authorization", "Bearer " + cfg.api_key)
     with urllib.request.urlopen(req, timeout=cfg.request_timeout_secs) as resp:
         out = json.loads(resp.read() or b"{}")
-    return (out.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+    text = (out.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+    return strip_think(text) if cfg.strip_think else text
 
 
 def _mentions_bot(text: str, bot_id: Optional[str]) -> bool:

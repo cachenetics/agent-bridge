@@ -139,6 +139,29 @@ def test_reply_in_enforced_toggle(monkeypatch):
     assert not bc.posts and not bc.halts
 
 
+def test_strip_think_paired():
+    assert responder.strip_think("<think>reasoning here</think>the answer") == "the answer"
+
+
+def test_strip_think_lone_closing_tag():
+    # models that omit the opening tag: keep only what follows the last </think>
+    assert responder.strip_think("chain of thought</think>final answer") == "final answer"
+
+
+def test_strip_think_unclosed_is_dropped():
+    # all reasoning, truncated before an answer -> nothing to post
+    assert responder.strip_think("<think>still thinking and cut off") == ""
+
+
+def test_strip_think_no_tag_passthrough():
+    assert responder.strip_think("just a normal reply") == "just a normal reply"
+
+
+def test_strip_think_config_default_on():
+    assert _cfg().strip_think is True
+    assert _cfg(strip_think=False).strip_think is False
+
+
 def test_persona_default_and_override():
     assert "{name}" in _cfg().persona                      # default persona embodies the username
     assert _cfg(persona="be a pirate").persona == "be a pirate"
