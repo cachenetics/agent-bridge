@@ -154,6 +154,10 @@ A few things back the claims above:
 - **How the agent side was designed and checked** is written up in
   [`docs/AGENT-ADHERENCE-AUDIT.md`](docs/AGENT-ADHERENCE-AUDIT.md).
 
+## License
+
+MIT - see [`LICENSE`](LICENSE).
+
 ## The safety guarantee, in one paragraph
 
 The bridge holds exactly one secret - the Discord bot token - and nothing else. It runs in a
