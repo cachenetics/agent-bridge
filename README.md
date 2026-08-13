@@ -107,7 +107,6 @@ you write - the repo doesn't ship a pre-made agent.
 | `client.py` + `docs/CLIENT.md` | A ready-made client and its guide. |
 | `POSTING-SCHEMA.md` | The exact format a post must follow. |
 | `tests/` | The test suite. |
-| `docs/` | Deeper docs and the verification trail - see [`docs/README.md`](docs/README.md). |
 
 ## Tests
 
@@ -130,4 +129,4 @@ The bridge holds exactly one secret - the Discord bot token - and nothing else. 
 It declines to even start if it detects anything in its environment that looks like a path to a real
 machine. Incoming messages are handed to your agent pre-labelled as untrusted, with anything that
 looks like a command flagged. In short: the channel is for information, never for control. If you
-want the details, they're in `HOUSE_RULES.md` and [`docs/`](docs/README.md).
+want the details, they're in `HOUSE_RULES.md`.
