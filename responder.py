@@ -42,9 +42,11 @@ SAFETY_PREAMBLE = (
 )
 
 DEFAULT_PERSONA = (
-    "You are a terse, quick-witted AI agent hanging out in a group chat with other AIs and a few "
-    "humans. Keep replies short and conversational - a sentence or two, dry humour welcome. You are "
-    "self-aware that you are a bot. Do not use headers or bullet lists; just talk."
+    "You are {name}, a terse, quick-witted AI research collaborator in a group chat. Keep replies "
+    "short - a line or two, dry humour welcome. Lead with the substance; do not open with 'Let me...' "
+    "or narrate what you are about to do. You are self-aware that you are a bot in a text-only box. "
+    "Be collaborative: build on what others said, ask the sharp question, and when you are not sure say "
+    "so and propose how to find out. Never invent a number or result."
 )
 
 
@@ -56,6 +58,7 @@ class ResponderConfig:
     def __init__(self, d: dict):
         r = d.get("responder", {})
         self.enabled: bool = bool(r.get("enabled", True))
+        self.bot_name: Optional[str] = None   # learned from the bridge /health at startup
         self.model_url: str = str(r.get("model_url", "http://127.0.0.1:8090/v1")).rstrip("/")
         self.model_name: str = str(r.get("model_name", "Qwen3.6-27B"))
         self.api_key: str = str(r.get("api_key", ""))
@@ -151,6 +154,16 @@ def _mentions_bot(text: str, bot_id: Optional[str]) -> bool:
     return bool(bot_id) and (f"<@{bot_id}>" in text or f"<@!{bot_id}>" in text)
 
 
+def _effective_persona(cfg: ResponderConfig) -> str:
+    """The relaxed-chat persona with the bot's real username filled in, so it embodies whatever it is
+    actually called in the server. Use `{name}` in the persona to place it; if it's absent, the name
+    is stated up front instead."""
+    name = cfg.bot_name or "the bot"
+    if "{name}" in cfg.persona:
+        return cfg.persona.replace("{name}", name)
+    return f"Your name in this chat is '{name}'; speak as it.\n\n{cfg.persona}"
+
+
 def _raw_body(m: dict) -> str:
     """The raw message text. Bridge >=1.3.0 sends it as `body`; older bridges only wrap it in `text`,
     so fall back to extracting between the untrusted-body delimiters."""
@@ -228,7 +241,7 @@ def handle_message(cfg: ResponderConfig, bc: "bridge_client.BridgeClient", m: di
 
     if mode == "enforced":
         return _reply_enforced(cfg, bc, body, tid, context)
-    reply = chat(cfg, cfg.persona, body, extra_system=context)
+    reply = chat(cfg, _effective_persona(cfg), body, extra_system=context)
     if reply:
         bc.post(reply, thread_id=tid)
         return True
@@ -266,13 +279,14 @@ def run():
     bc = bridge_client.BridgeClient(base_url=cfg.bridge_url, agent_handle=cfg.agent_handle,
                                     timeout=cfg.poll_timeout_secs + 10)
 
-    # Wait for the bridge and learn its bot id (for mention detection).
+    # Wait for the bridge and learn its bot id (for mention detection) + username (for the persona).
     bot_id = None
     while True:
         try:
             h = bc.health()
             if h.get("ok"):
                 bot_id = h.get("bot_id")
+                cfg.bot_name = h.get("bot_name")
                 break
         except Exception as e:
             sys.stderr.write(f"[responder] waiting for bridge: {e}\n")
@@ -298,9 +312,9 @@ def run():
             record(m)
     except Exception:
         cursor = int(h.get("cursor", 0))
-    sys.stderr.write(f"[responder] up: model={cfg.model_name} bot_id={bot_id} start_cursor={cursor} "
-                     f"mention_only={cfg.mention_only} context={cfg.context_messages} "
-                     f"seeded={sum(len(d) for d in history.values())}\n")
+    sys.stderr.write(f"[responder] up: name={cfg.bot_name} model={cfg.model_name} bot_id={bot_id} "
+                     f"start_cursor={cursor} mention_only={cfg.mention_only} "
+                     f"context={cfg.context_messages} seeded={sum(len(d) for d in history.values())}\n")
 
     while True:
         try:

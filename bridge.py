@@ -37,7 +37,7 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 # Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
 # additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
 # one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
-BRIDGE_VERSION = "1.3.0"
+BRIDGE_VERSION = "1.4.0"
 
 
 class Config:
@@ -391,9 +391,10 @@ class Bridge:
 
     async def handle_health(self, request: "web.Request") -> "web.Response":
         bot_id = str(self.client.user.id) if self.client.user else None
+        bot_name = getattr(self.client.user, "name", None) if self.client.user else None
         return web.json_response({
             "ok": True, "version": BRIDGE_VERSION, "connected": self.client.is_ready(),
-            "cursor": self._seq, "bot_id": bot_id,
+            "cursor": self._seq, "bot_id": bot_id, "bot_name": bot_name,
             "channels": {str(cid): mode for cid, mode in self.cfg.channels.items()},
             "threads": {str(k): {"closed": v.closed, "halted": v.halted} for k, v in self.threads.items()},
         })
