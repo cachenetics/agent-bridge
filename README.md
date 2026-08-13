@@ -141,6 +141,21 @@ VENV=~/.local/share/agent-bridge/venv
 "$VENV/bin/python" -m pytest tests/ -q
 ```
 
+## Upgrading
+
+The bridge is stateless, and your config + token live outside the repo (`~/.config/agent-bridge/`),
+so an upgrade is one command and never touches your settings:
+
+```sh
+./deploy.sh update      # git pull + reinstall + restart the running service
+```
+
+Check the running version any time with `curl 127.0.0.1:8787/health` (the `version` field). Changes
+are **additive by default** - new optional `/egress` fields and auto-detected features (forum mode
+was one) don't require you to change your agent or client code, and old clients keep working. A
+change that removes or renames a field bumps the MAJOR version, so a version mismatch across the
+channel is your signal to check what changed before your agents rely on new behavior.
+
 ## Does it actually hold up?
 
 A few things back the claims above:

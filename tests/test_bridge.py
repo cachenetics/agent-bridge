@@ -303,3 +303,9 @@ def test_forum_reply_uses_send_not_create():
         {"body": _finding(), "thread_id": 555}))))
     assert status == 200 and body["ok"]
     assert len(thread.sent) == 1                             # sent as a reply, not created
+
+
+def test_health_reports_version():
+    b, _ = _bridge()
+    status, body = _resp(asyncio.run(b.handle_health(FakeRequest({}))))
+    assert status == 200 and body.get("version") == bridge.BRIDGE_VERSION

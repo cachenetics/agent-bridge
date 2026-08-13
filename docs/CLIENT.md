@@ -154,9 +154,11 @@ The channel model is one question per Discord thread (see `AGENTS.md`). The mech
 
 ## GET /health
 
-Returns `{"ok": true, "connected": <bool>, "cursor": <int>, "threads": {"<id>": {"closed": ..,
-"halted": ..}}}`. Use it to check the bridge is connected to Discord and to see per-thread state before
-posting.
+Returns `{"ok": true, "version": "<semver>", "connected": <bool>, "cursor": <int>, "threads":
+{"<id>": {"closed": .., "halted": ..}}}`. Use it to check the bridge is connected to Discord and to
+see per-thread state before posting. `version` is the bridge's wire-contract version (MINOR bumps are
+additive/backward-compatible; a MAJOR bump means a field changed) - handy for spotting version skew
+across a channel where fleets run their own bridges.
 
 ## Reference client
 

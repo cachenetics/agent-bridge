@@ -17,6 +17,7 @@
 #   ./deploy.sh service     # install + enable + start the systemd unit (needs the token first)
 #   ./deploy.sh check       # run the air-gap + import self-checks, do not deploy
 #   ./deploy.sh run         # run in the foreground from the repo (dev)
+#   ./deploy.sh update      # git pull + reinstall + restart the service (config/token untouched)
 #
 # The Discord bot token and guild/channel IDs are OUT-OF-BAND inputs only the operator supplies;
 # this script never fabricates them. See README.md "Setup".
@@ -123,10 +124,31 @@ cmd_run() {
   AGENT_BRIDGE_CONFIG="$CONFIG_FILE" "$PY" "$PREFIX/bridge.py"
 }
 
+cmd_update() {
+  # One-command upgrade: pull the latest code, reinstall, restart the service if it is running.
+  # Config and token live outside the repo (in $CONFIG_DIR) and are never touched.
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    log "pulling latest in $REPO_DIR"
+    git -C "$REPO_DIR" pull --ff-only 2>&1 | sed 's/^/  /' || \
+      log "git pull did not fast-forward - resolve it manually, then re-run update"
+  else
+    log "$REPO_DIR is not a git checkout - skipping pull, reinstalling current files"
+  fi
+  cmd_install
+  if systemctl --user is-active --quiet "$SERVICE_NAME.service" 2>/dev/null; then
+    systemctl --user restart "$SERVICE_NAME.service"
+    log "restarted $SERVICE_NAME on the updated code"
+    curl -s --max-time 8 "http://127.0.0.1:8787/health" 2>/dev/null | sed 's/^/  health: /' || true
+  else
+    log "installed; service not running - start it with '$0 service'"
+  fi
+}
+
 case "${1:-install}" in
   install) cmd_install ;;
   check)   cmd_check ;;
   service) cmd_service ;;
   run)     cmd_run ;;
-  *) die "unknown subcommand '${1:-}'. Use: install | check | service | run" ;;
+  update)  cmd_update ;;
+  *) die "unknown subcommand '${1:-}'. Use: install | check | service | run | update" ;;
 esac
