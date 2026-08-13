@@ -231,7 +231,9 @@ def provenance_stamp(sender_id: str, sender_handle: str, body: str) -> str:
     """sec 10 provenance stamping: the BRIDGE attaches verifiable origin. sender_id/handle come from
     the transport (Discord-asserted on ingress; bot-asserted on egress), never from the payload."""
     digest = hashlib.sha256(f"{sender_id}\n{body}".encode()).hexdigest()[:16]
-    return f"[PROV sender={sender_handle} id={sender_id} body_sha256:16={digest}]\n{body}"
+    # The receipt goes at the BOTTOM as Discord subtext (`-# ` = small/grey), so a post leads with its
+    # content and the provenance sits quietly as a footer instead of shouting from the top line.
+    return f"{body}\n-# [PROV sender={sender_handle} id={sender_id} body_sha256:16={digest}]"
 
 
 def check_egress(

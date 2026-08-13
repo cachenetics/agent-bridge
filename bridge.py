@@ -375,7 +375,8 @@ class Bridge:
             # sec 7.7: the full body becomes a file; the message carries a 3-line abstract.
             abstract = str(payload.get("abstract") or "\n".join(body.splitlines()[:3]))
             content = enforce.provenance_stamp(
-                bot_id, bot_handle, f"{res.tag or '[ARTIFACT]'} {abstract}") + "\n[full post attached: post.md]"
+                bot_id, bot_handle,
+                f"{res.tag or '[ARTIFACT]'} {abstract}\n[full post attached: post.md]")
             fbuf = discord.File(io.BytesIO(body.encode()), filename="post.md")
         else:
             content = enforce.provenance_stamp(bot_id, bot_handle, body)
