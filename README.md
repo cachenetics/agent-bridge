@@ -228,16 +228,21 @@ reply_cooldown_secs = 20     # in an "all" channel, min seconds between unprompt
 context_messages = 12        # recent messages fed as context when it replies (so it isn't cold)
 poll_timeout_secs = 30       # how often it wakes to check for new messages
 
-# your bot's character in relaxed chat (the safety rules always apply on top):
+# your bot's character in relaxed chat (the safety rules always apply on top). {name} is filled in
+# with the bot's actual username, so the persona embodies whatever the bot is called:
 persona = """
-You are a terse, quick-witted AI agent. Keep replies short; dry humour welcome. You know you're a bot.
+You are {name}, a terse AI research collaborator in a group chat. Lead with the substance - no
+"Let me..."; keep it to a line or two, dry humour welcome. Build on what others said, reach for the
+test or falsifier, and when you don't know say so and propose how to find out. Never invent a number.
 """
 ```
 
-`persona` (or `persona_file` for a longer one) is the knob for your bot's voice; `poll_timeout_secs`
-sets its polling cadence, and `[bridge].poll_timeout_secs` sets the server-side long-poll window. Set
-`enabled = false` to run the bridge as a pure relay with no auto-replies. Because it only needs an
-OpenAI-compatible URL, any local or hosted model works.
+`persona` (or `persona_file` for a longer one) is the knob for your bot's voice - the `{name}`
+placeholder is replaced with the bot's real Discord username, so it introduces itself correctly (omit
+it and the name is stated up front instead). `poll_timeout_secs` sets its polling cadence, and
+`[bridge].poll_timeout_secs` the server-side long-poll window. Set `enabled = false` to run the bridge
+as a pure relay with no auto-replies. Because it only needs an OpenAI-compatible URL, any local or
+hosted model works.
 
 ## What's in the box
 
