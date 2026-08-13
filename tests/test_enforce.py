@@ -281,3 +281,43 @@ def test_thread_yield_resets_counter():
         t.observe(None)
     t.observe("[FINDING]")
     assert not t.closed and t.messages_since_yield == 0
+
+
+# --- markdown-decorated posts (clean structured formatting must still enforce) -----------------
+def test_bold_tag_is_recognized():
+    # a bold headline tag must still be detected, not treated as untyped
+    r = enforce.check_egress("**[HYPOTHESIS]** a question; cheapest test is a re-read")
+    assert r.ok and r.tag == "[HYPOTHESIS]"
+
+
+def test_markdown_decorated_finding_accepted():
+    # ariel-style: bold tag, bold/bullet/inline-code labels, inline-code values - all must pass gating
+    body = (
+        "**[FINDING]** capacity readback\n\n"
+        "**STATUS:** MEASURED\n"
+        "- **CLAIM_KIND:** inference\n"
+        "**VERDICT:** setting read back cleared\n"
+        "`VERDICT_BASIS`: line 44 of the archived readback\n"
+        "**GATING_DIMENSION:** compute configuration\n"
+        "**STATE_SHA256:** `abc123`\n"
+        "**SAMPLE_COUNT:** 2\n"
+        "**FALSIFIER:** a repeat readback showing it set\n"
+        "**FIRE_TIME_PRECONDITIONS:** clean restart, one setting changed\n"
+        "**ARTIFACT:** `run/x.log`\n"
+        "**NEGATIVE_CONTROL:** stock readback same session\n"
+        "**DOES_NOT_PROVE:** nothing about persistence\n"
+    )
+    r = enforce.check_egress(body)
+    assert r.ok and r.tag == "[FINDING]", r.reason
+
+
+def test_bold_value_still_ladder_checked():
+    # decoration on the VALUE is stripped, so the ladder + PROVEN rules still apply both ways
+    assert enforce.check_egress(_good_finding(status="**MEASURED**")).ok
+    r = enforce.check_egress(_good_finding(sample="1", status="**PROVEN**"))
+    assert not r.ok and "PROVEN" in r.reason
+
+
+def test_plain_labels_still_work():
+    # the decoration is optional; the original plain format is unchanged
+    assert enforce.check_egress(_good_finding()).ok

@@ -140,8 +140,10 @@ class ThreadState:
 
 
 def first_tag(body: str) -> Optional[str]:
-    """sec 1 - the tag must be the first token."""
-    stripped = body.lstrip()
+    """sec 1 - the tag must be the first token. Leading markdown decoration (a bold headline
+    `**[FINDING]**`, a bullet, a blockquote, inline code) is tolerated so a cleanly-formatted post
+    is still recognized; the canonical tag is returned regardless."""
+    stripped = body.lstrip(" \t\r\n>*_`~")
     for tag in POST_TAGS:
         if stripped.startswith(tag):
             return tag
@@ -176,10 +178,24 @@ def is_control_line(body: str) -> bool:
     return is_halt_token(body) or is_thread_closed_line(body)
 
 
+# A field label may be decorated with markdown so a post renders cleanly in the channel AND stays
+# machine-detectable: bold (`**STATUS:**` or `**STATUS**:`), a list bullet (`- STATUS:`), a
+# blockquote (`> STATUS:`), or inline code (`` `STATUS`: ``). We tolerate that decoration around the
+# label and strip it from the returned value. Plain `STATUS: value` still matches (every piece is
+# optional). The value is stripped of edge decoration so `**MEASURED**` / `` `MEASURED` `` -> MEASURED.
+_LABEL_LEAD = r"[\s>*_`~+-]*"   # bullet / blockquote / emphasis / code before the label
+_GAP = r"[\s*_`~]*"             # emphasis / code / space around the separator
+_VALUE_EDGE = " \t*_`~"          # decoration stripped from the value's edges
+
+
 def _field_value(body: str, key: str) -> Optional[str]:
-    # "LABEL: value" or "LABEL = value", label matched case-insensitively, value non-empty.
-    m = re.search(rf"(?im)^\s*{re.escape(key)}\s*[:=]\s*(\S.*)$", body)
-    return m.group(1).strip() if m else None
+    # "LABEL: value" or "LABEL = value", label matched case-insensitively, markdown decoration
+    # tolerated around the label, value non-empty after edge decoration is stripped.
+    m = re.search(rf"(?im)^{_LABEL_LEAD}{re.escape(key)}{_GAP}[:=]{_GAP}(\S.*)$", body)
+    if not m:
+        return None
+    value = m.group(1).strip().strip(_VALUE_EDGE).strip()
+    return value or None
 
 
 def _has_field(body: str, key: str) -> bool:
