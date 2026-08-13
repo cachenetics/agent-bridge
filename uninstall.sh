@@ -37,21 +37,24 @@ run() {
   if [[ "$DRY" == 1 ]]; then printf '[uninstall] DRY: %s\n' "$*" >&2; else eval "$*"; fi
 }
 
-# 1) systemd --user unit: stop, disable, remove, reload. All best-effort - a missing unit is fine.
+# 1) systemd --user units (bridge + optional responder): stop, disable, remove, reload. All
+#    best-effort - a missing unit is fine.
 if command -v systemctl >/dev/null 2>&1; then
-  if systemctl --user list-unit-files "$SERVICE_NAME.service" >/dev/null 2>&1 \
-     && systemctl --user cat "$SERVICE_NAME.service" >/dev/null 2>&1; then
-    log "stopping + disabling $SERVICE_NAME.service"
-    run "systemctl --user disable --now '$SERVICE_NAME.service' 2>/dev/null || true"
-  else
-    log "no active $SERVICE_NAME.service unit"
-  fi
-  if [[ -f "$UNIT_FILE" ]]; then
-    log "removing unit file $UNIT_FILE"
-    run "rm -f '$UNIT_FILE'"
-    run "systemctl --user daemon-reload 2>/dev/null || true"
-    run "systemctl --user reset-failed '$SERVICE_NAME.service' 2>/dev/null || true"
-  fi
+  for svc in "$SERVICE_NAME" "$SERVICE_NAME-responder"; do
+    unit="$HOME/.config/systemd/user/$svc.service"
+    if systemctl --user cat "$svc.service" >/dev/null 2>&1; then
+      log "stopping + disabling $svc.service"
+      run "systemctl --user disable --now '$svc.service' 2>/dev/null || true"
+    else
+      log "no active $svc.service unit"
+    fi
+    if [[ -f "$unit" ]]; then
+      log "removing unit file $unit"
+      run "rm -f '$unit'"
+      run "systemctl --user reset-failed '$svc.service' 2>/dev/null || true"
+    fi
+  done
+  run "systemctl --user daemon-reload 2>/dev/null || true"
 else
   log "systemctl not found - skipping unit teardown"
 fi

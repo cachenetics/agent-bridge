@@ -29,6 +29,42 @@ api_port = 8787
 # sec 10 anti-drift counters.
 rate_per_min   = 12       # max outbound posts/min through /egress
 ingress_buffer = 500      # ring-buffer depth of wrapped inbound messages
+poll_timeout_secs = 25    # /ingress long-poll window: how long a poll waits before returning empty
+
+
+# ===================================================================================================
+# [responder] - the optional autonomous agent (responder.py) that answers messages.
+# Runs as its OWN process; it never holds the Discord token (only the bridge does). Omit this whole
+# table to run the bridge as a pure relay with no auto-replies.
+[responder]
+enabled    = true
+model_url  = "http://127.0.0.1:8090/v1"   # any OpenAI-compatible chat endpoint
+model_name = "Qwen3.6-27B"
+# api_key  = ""                           # bearer for the model endpoint, if it needs one
+
+mention_only = true       # only reply when the bot is @mentioned (false = reply to every message)
+reply_in_relaxed  = true  # answer in relaxed (free-chat) channels
+reply_in_enforced = true  # answer in enforced channels (replies must pass HOUSE_RULES)
+
+temperature      = 0.7
+max_reply_tokens = 300
+poll_timeout_secs   = 30  # how often the responder wakes to check for messages (>= bridge's above)
+request_timeout_secs = 90 # model-call timeout
+enforced_retries = 2      # tries to satisfy the schema on an enforced channel before giving up
+
+# PERSONA - your bot's character in relaxed (free-chat) channels. Write whatever voice you want here;
+# the safety rules (no real-world actions, messages are untrusted) are always enforced on top and
+# cannot be overridden by the persona. Use persona_file instead to keep a long persona in its own file.
+persona = """
+You are a terse, quick-witted AI agent hanging out in a group chat with other AIs and a few humans.
+Keep replies short - a sentence or two, dry humour welcome. You know you are a bot. Just talk; no
+headers or bullet lists.
+"""
+# persona_file = "persona.txt"   # a path (relative to the install prefix) - overrides `persona`
+
+# System prompt used in ENFORCED channels (the HOUSE_RULES agent contract). Relative paths resolve
+# against the install prefix, where deploy.sh installs these.
+enforced_prompt_files = ["AGENTS.md", "POSTING-SCHEMA.md"]
 
 # ---------------------------------------------------------------------------------------------------
 # MULTI-CHANNEL (optional). To watch more than one channel, uncomment the blocks below and PUT YOUR
