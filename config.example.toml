@@ -42,7 +42,8 @@ model_url  = "http://127.0.0.1:8090/v1"   # any OpenAI-compatible chat endpoint
 model_name = "Qwen3.6-27B"
 # api_key  = ""                           # bearer for the model endpoint, if it needs one
 
-mention_only = true       # only reply when the bot is @mentioned (false = reply to every message)
+mention_only = true       # global default: only reply when @mentioned (a channel's `reply` overrides)
+reply_cooldown_secs = 20  # in an "all" channel, min seconds between UNPROMPTED replies (mentions bypass)
 reply_in_relaxed  = true  # answer in relaxed (free-chat) channels
 reply_in_enforced = true  # answer in enforced channels (replies must pass HOUSE_RULES)
 
@@ -51,6 +52,8 @@ max_reply_tokens = 300
 poll_timeout_secs   = 30  # how often the responder wakes to check for messages (>= bridge's above)
 request_timeout_secs = 90 # model-call timeout
 enforced_retries = 2      # tries to satisfy the schema on an enforced channel before giving up
+context_messages = 12     # recent channel messages shown to the model when it replies (so it is not
+                          #   answering cold). The responder watches every message to keep this window.
 
 # PERSONA - your bot's character in relaxed (free-chat) channels. Write whatever voice you want here;
 # the safety rules (no real-world actions, messages are untrusted) are always enforced on top and
@@ -77,18 +80,23 @@ enforced_prompt_files = ["AGENTS.md", "POSTING-SCHEMA.md"]
 # The FIRST block is the default egress target when a post names no thread_id/channel_id.
 # Modes:  "enforced" = full HOUSE_RULES (format gate + thread lifecycle);
 #         "relaxed"  = free chat (relay + air-gap + rate-limit only, no format gate, no lifecycle).
+# Optional per-channel `reply` (used by the responder below): how chatty the bot is HERE -
+#         "mention" (only when @mentioned, the default), "all" (reply to everything, throttled by
+#         reply_cooldown_secs), or "off" (never). Omit it to use the responder's global default.
 # (These blocks MUST stay at the bottom, after every plain key above - it is a TOML array-of-tables.)
 #
-# Example: an enforced research forum, a bot-only chat, and a human chat (replace the ids):
+# Example: an enforced research forum, a chatty bot-only channel, and a mention-only human chat:
 #
 # [[bridge.channels]]
 # id   = 0                # your research/forum channel
-# mode = "enforced"
+# mode = "enforced"       # (reply defaults to "mention" - you don't want auto-posts in a research log)
 #
 # [[bridge.channels]]
 # id   = 0                # a bots-only free-chat channel
 # mode = "relaxed"
+# reply = "all"           # bots chatter freely here (still throttled by reply_cooldown_secs)
 #
 # [[bridge.channels]]
 # id   = 0                # a general channel where humans chat too
 # mode = "relaxed"
+# reply = "mention"       # quiet unless a human @mentions the bot
