@@ -2,9 +2,22 @@
 # fill in the out-of-band values. NEVER put the bot token in here - it lives in a separate 600 file.
 
 [bridge]
-# Discord guild + channel the bridge watches/posts to. Out-of-band inputs (operator supplies).
+# Discord guild + channel(s) the bridge watches/posts to. Out-of-band inputs (operator supplies).
 guild_id   = 0            # <-- REQUIRED: the Discord server (guild) id
-channel_id = 0            # <-- REQUIRED: the #research-general channel id (text OR forum; auto-detected)
+
+# The bridge can watch ONE channel or SEVERAL, each with a mode:
+#   "enforced" - full HOUSE_RULES (sec 1 schema gate + sec 6/7.2 lifecycle). The research forum.
+#   "relaxed"  - free chat: relay + air-gap + rate-limit only, NO schema gate, NO lifecycle.
+# Simple single-channel form (enforced): just set channel_id.
+channel_id = 0            # <-- REQUIRED (or use [[bridge.channels]] below): text OR forum, auto-detected
+# Multi-channel form (overrides channel_id if present). The FIRST entry is the default egress target
+# when a post names no thread_id/channel_id.
+# [[bridge.channels]]
+# id   = 1537333939616616478   # the research forum
+# mode = "enforced"
+# [[bridge.channels]]
+# id   = 1537333940493492304   # the free-chat channel
+# mode = "relaxed"
 
 # The bot token is read from this file (mode 600), never from config or env. deploy.sh points
 # @TOKEN_FILE@ at ~/.config/agent-bridge/token.

@@ -44,7 +44,16 @@ class Config:
     def __init__(self, d: dict):
         b = d.get("bridge", {})
         self.guild_id: int = int(b.get("guild_id", 0) or 0)   # optional; routing is by channel_id
-        self.channel_id: int = int(b["channel_id"])
+        # Channels the bridge serves, each with a mode: "enforced" (full HOUSE_RULES) or "relaxed"
+        # (free chat - relay + air-gap + provenance, but NO sec 1 schema gate and NO sec 7.2 lifecycle).
+        # Back-compat: a single `channel_id` is one enforced channel.
+        self.channels: dict = {}
+        for ch in (b.get("channels") or []):
+            self.channels[int(ch["id"])] = str(ch.get("mode", "enforced")).lower()
+        if not self.channels:
+            self.channels[int(b["channel_id"])] = "enforced"
+        # Primary/default egress target (first configured), used when a post names no channel/thread.
+        self.channel_id: int = next(iter(self.channels))
         self.token_file: str = b["token_file"]
         self.archive_root: Optional[str] = b.get("archive_root") or None
         self.api_host: str = b.get("api_host", "127.0.0.1")
@@ -156,11 +165,19 @@ class Bridge:
         self.client.event(self.on_message)
 
     # ---- routing helpers ----
+    def _channel_mode(self, channel) -> Optional[str]:
+        """Mode of this channel (or of its parent, for threads / forum posts), or None if unwatched.
+        'enforced' = full HOUSE_RULES; 'relaxed' = free chat (relay only)."""
+        if channel.id in self.cfg.channels:
+            return self.cfg.channels[channel.id]
+        pid = getattr(channel, "parent_id", None)
+        if pid in self.cfg.channels:
+            return self.cfg.channels[pid]
+        return None
+
     def _watched(self, channel) -> bool:
-        """The configured channel and any thread whose parent is that channel (sec 7.2 threads)."""
-        if channel.id == self.cfg.channel_id:
-            return True
-        return getattr(channel, "parent_id", None) == self.cfg.channel_id
+        """Any configured channel, and any thread whose parent is a configured channel."""
+        return self._channel_mode(channel) is not None
 
     def _thread_state(self, tid: int) -> enforce.ThreadState:
         st = self.threads.get(tid)
@@ -182,7 +199,8 @@ class Bridge:
 
     # ---- Discord -> agents (ingress) ----
     async def on_ready(self):
-        sys.stderr.write(f"[bridge] connected as {self.client.user}, watching channel {self.cfg.channel_id}\n")
+        watched = ", ".join(f"{cid}:{mode}" for cid, mode in self.cfg.channels.items())
+        sys.stderr.write(f"[bridge] connected as {self.client.user}, watching {watched}\n")
 
     async def on_message(self, message: "discord.Message"):
         if message.author == self.client.user:
@@ -190,9 +208,12 @@ class Bridge:
         if not self._watched(message.channel):
             return
         tid = message.channel.id
-        st = self._thread_state(tid)
         res = self._buffer_ingress(str(message.author.id), message.author.display_name,
                                    message.content, tid, self_origin=False)
+        # sec 6/sec 7.2 lifecycle only applies to ENFORCED channels; relaxed (free chat) is relay-only.
+        if self._channel_mode(message.channel) != "enforced":
+            return
+        st = self._thread_state(tid)
         if res.halt:
             st.halted = True   # sec 6: this thread is halted
         if st.observe(enforce.first_tag(message.content)):
@@ -212,22 +233,34 @@ class Bridge:
             return web.json_response({"ok": False, "reason": "body must be JSON"}, status=400)
         body = payload.get("body", "")
         handle = str(payload.get("agent_handle", "agent"))
-        # thread_id is optional. If given -> reply into that thread/post. If absent -> the root
-        # channel (a text channel), OR "start a new post" when the root is a forum channel.
+        # Target resolution: thread_id (reply into a thread/post) takes precedence, else channel_id
+        # (a specific configured channel root), else the primary channel. A forum root with no
+        # thread_id == "start a new post" (a forum post IS a thread).
         explicit_thread = payload.get("thread_id")
+        explicit_channel = payload.get("channel_id")
         try:
-            tid = int(explicit_thread) if explicit_thread is not None else self.cfg.channel_id
+            if explicit_thread is not None:
+                tid = int(explicit_thread)
+            elif explicit_channel is not None:
+                tid = int(explicit_channel)
+            else:
+                tid = self.cfg.channel_id
         except (TypeError, ValueError):
-            return web.json_response({"ok": False, "reason": "thread_id must be an integer"}, status=400)
+            return web.json_response({"ok": False, "reason": "thread_id/channel_id must be an integer"}, status=400)
+
+        # Resolve the channel first: its MODE decides the ruleset. 'relaxed' channels (free chat) skip
+        # the sec 1 schema gate and the sec 6/7.2 lifecycle entirely - relay + air-gap + rate-limit only.
+        channel = self.client.get_channel(tid)
+        mode = self._channel_mode(channel) if channel is not None else None
+        if channel is None or mode is None:
+            return web.json_response({"ok": False, "reason": "target channel not resolved/allowed"}, status=503)
+        if mode == "relaxed":
+            return await self._egress_relaxed(channel, tid, body, handle)
 
         res = enforce.check_egress(body, archive_root=self.cfg.archive_root)
         if not res.ok and not res.route_as_attachment:
             return web.json_response(
                 {"ok": False, "reason": res.reason, "void": res.void}, status=422)
-
-        channel = self.client.get_channel(tid)
-        if channel is None or not self._watched(channel):
-            return web.json_response({"ok": False, "reason": "target channel not resolved/allowed"}, status=503)
 
         # A forum channel with no thread_id == "start a new post" (a forum post IS a thread).
         new_forum_post = _is_forum(channel) and explicit_thread is None
@@ -298,6 +331,36 @@ class Bridge:
         if new_forum_post:
             out["thread_id"] = str(tid)          # the new post's id, so the agent can reply into it
         if res.route_as_attachment:
+            out["routed_as_attachment"] = True
+        return web.json_response(out)
+
+    async def _egress_relaxed(self, channel, tid: int, body: str, handle: str) -> "web.Response":
+        """Free-chat relay for a 'relaxed' channel: no sec 1 schema gate, no sec 6/7.2 lifecycle.
+        The load-bearing air-gap (loopback bind + sandbox) and the outbound rate limit still apply;
+        the bot's own identity is the attribution, so the body is relayed raw (no provenance stamp).
+        Inbound is still wrapped untrusted at ingress regardless of channel mode."""
+        if not body:
+            return web.json_response({"ok": False, "reason": "body must be non-empty"}, status=400)
+        if not self.rate.allow(time.time()):
+            return web.json_response(
+                {"ok": False, "reason": f"sec 10 rate limit: >{self.cfg.rate_per_min}/min"}, status=429)
+        bot_id = str(self.client.user.id) if self.client.user else "bridge"
+        over = len(body) > 1900   # Discord's 2000-char hard cap: overflow rides as a file (transport, not a rule)
+        try:
+            if over:
+                abstract = "\n".join(body.splitlines()[:3])
+                sent = await channel.send(
+                    content=abstract + "\n[full message attached: message.md]",
+                    file=discord.File(io.BytesIO(body.encode()), filename="message.md"))
+            else:
+                sent = await channel.send(body)
+        except Exception as e:
+            self.rate.refund()
+            return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
+        # Fan to co-located siblings (Discord drops our own echo in on_message).
+        self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
+        out = {"ok": True, "relaxed": True, "message_id": str(sent.id)}
+        if over:
             out["routed_as_attachment"] = True
         return web.json_response(out)
 
