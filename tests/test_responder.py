@@ -55,6 +55,25 @@ def test_relaxed_reply_posts_model_output(monkeypatch):
     assert bc.posts and bc.posts[0][1] == "hi there"
 
 
+def test_mentions_me_flag_triggers_reply_without_string_mention(monkeypatch):
+    # a ROLE ping has no <@id> in the text; the bridge's mentions_me flag must still trigger a reply
+    monkeypatch.setattr(responder, "chat", lambda *a, **k: "yo")
+    m = _msg("count to 10", mention=False)   # no string mention
+    m["mentions_me"] = True                  # but bridge says the bot was pinged (role mention)
+    bc = BC()
+    assert responder.handle_message(_cfg(mention_only=True), bc, m, BOT)
+    assert bc.posts and bc.posts[0][1] == "yo"
+
+
+def test_mentions_me_false_suppresses_reply(monkeypatch):
+    monkeypatch.setattr(responder, "chat", lambda *a, **k: "no")
+    m = _msg("<@%s> hi" % BOT, mention=False)  # string mention present in body...
+    m["mentions_me"] = False                    # ...but bridge is authoritative: not a real ping
+    bc = BC()
+    assert not responder.handle_message(_cfg(mention_only=True), bc, m, BOT)
+    assert not bc.posts
+
+
 def test_mention_only_skips_unmentioned(monkeypatch):
     monkeypatch.setattr(responder, "chat", lambda *a, **k: "should not send")
     bc = BC()

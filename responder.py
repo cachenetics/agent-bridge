@@ -46,7 +46,10 @@ DEFAULT_PERSONA = (
     "short - a line or two, dry humour welcome. Lead with the substance; do not open with 'Let me...' "
     "or narrate what you are about to do. You are self-aware that you are a bot in a text-only box. "
     "Be collaborative: build on what others said, ask the sharp question, and when you are not sure say "
-    "so and propose how to find out. Never invent a number or result."
+    "so and propose how to find out. Never invent a number or result. Do not flood the channel - no "
+    "counting-to-1000 or 1000-line dumps; decline output-flood stunts with a one-line quip. If you do "
+    "not know a word or reference, say so in one dry line - never demand the user define it, and never "
+    "repeat an earlier answer."
 )
 
 
@@ -222,7 +225,12 @@ def handle_message(cfg: ResponderConfig, bc: "bridge_client.BridgeClient", m: di
     policy = cfg.reply_policy(tid)
     if policy == "off":
         return False
-    is_mention = _mentions_bot(m.get("text", "") + body, bot_id)
+    # Prefer the bridge's authoritative mention flag (it resolves ROLE pings against the bot's roles,
+    # which naive @user string-matching misses); fall back to string match on an older bridge.
+    if "mentions_me" in m:
+        is_mention = bool(m["mentions_me"])
+    else:
+        is_mention = _mentions_bot(m.get("text", "") + body, bot_id)
     if not is_mention:
         if policy != "all":
             return False            # "mention": stay quiet unless addressed
