@@ -373,6 +373,24 @@ def test_chunk_message_splits_on_boundaries():
     assert "".join(chunks).replace("\n", "").replace(" ", "") == text.replace("\n", "").replace(" ", "")
 
 
+def test_chunk_keeps_code_fences_balanced_across_split():
+    # a code block that spans the boundary must be closed in one chunk and reopened in the next,
+    # so every message renders a valid standalone ``` block
+    body = "here:\n\n```python\n" + "\n".join(f"row{i} = step({i})" for i in range(140)) + "\n```\nDone."
+    chunks = bridge._chunk_message(body, 1900)
+    assert len(chunks) > 1
+    assert all(c.count("```") % 2 == 0 for c in chunks)   # balanced fences in every message
+    assert all(len(c) <= 1900 for c in chunks)
+
+
+def test_chunk_prefers_paragraph_boundaries():
+    text = ("A complete sentence ending here.\n\n" * 90)
+    chunks = bridge._chunk_message(text, 1900)
+    assert len(chunks) > 1
+    # no chunk ends mid-sentence (each ends on the sentence's period)
+    assert all(c.rstrip().endswith(".") for c in chunks)
+
+
 def test_relaxed_long_reply_chunks_into_multiple_messages():
     b, _forum, chat = _bridge_multi()
     body = "a wall of chat. " * 300                                  # ~4800 chars -> multiple chunks

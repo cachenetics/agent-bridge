@@ -143,20 +143,31 @@ def _is_forum(channel) -> bool:
 
 
 def _chunk_message(text: str, size: int = 1900):
-    """Split text into <=size-char chunks for Discord's 2000-char cap, preferring newline then space
-    boundaries so words/lines aren't cut mid-token; hard-splits only if a single run exceeds size."""
-    chunks, rest = [], text
-    while len(rest) > size:
-        window = rest[:size]
-        cut = window.rfind("\n")
-        if cut < size // 2:
-            cut = window.rfind(" ")
-        if cut < size // 2:
-            cut = size
-        chunks.append(rest[:cut].rstrip())
+    """Split text into <=size-char messages for Discord's 2000-char cap. Prefers paragraph (blank line)
+    then line then word boundaries so a message ends on a clean break, not mid-sentence. Fence-aware: a
+    ``` code block that would be cut across two messages is closed at the end of one and reopened at the
+    start of the next, so every message renders a valid, self-contained code block."""
+    chunks, rest, in_fence = [], text, False
+    while True:
+        prefix = "```\n" if in_fence else ""          # reopen a code block carried from the last chunk
+        if len(prefix) + len(rest) <= size:
+            chunks.append(prefix + rest)
+            break
+        budget = size - len(prefix) - 4               # reserve room for a possible closing "\n```"
+        window = rest[:budget]
+        cut = window.rfind("\n\n")                    # 1st choice: a paragraph break
+        if cut < budget // 2:
+            cut = window.rfind("\n")                  # 2nd: any line break
+        if cut < budget // 2:
+            cut = window.rfind(" ")                   # 3rd: a word boundary
+        if cut < budget // 2:
+            cut = budget                              # last resort: hard cut
+        body = prefix + rest[:cut].rstrip()
+        in_fence = body.count("```") % 2 == 1         # odd fence count => we're mid-block at the cut
+        if in_fence:
+            body += "\n```"                           # close it so this message stands alone
+        chunks.append(body)
         rest = rest[cut:].lstrip()
-    if rest:
-        chunks.append(rest)
     return chunks
 
 
