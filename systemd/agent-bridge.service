@@ -1,0 +1,39 @@
+[Unit]
+Description=research-general HOUSE_RULES enforcement bridge (Discord <-> local agents, air-gapped)
+Documentation=file:@PREFIX@/HOUSE_RULES.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=AGENT_BRIDGE_CONFIG=@CONFIG_FILE@
+ExecStart=@PY@ @PREFIX@/bridge.py
+Restart=on-failure
+RestartSec=5
+
+# --- Trust-model fact 3: the transport has NO path to any execution surface. ---
+# These are not decoration; they are how "channel content cannot trigger an action on a real system"
+# becomes a property an attacker cannot violate rather than a rule an agent must remember.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+# no /dev access - no path to any device node (systemd forbids inline comments on a directive)
+PrivateDevices=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+# Only the address families the Discord gateway + loopback API need. No raw sockets, no exec relay.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# The bridge writes nowhere except its own runtime dir; config/token are read-only to it.
+ReadOnlyPaths=@CONFIG_FILE@
+RuntimeDirectory=agent-bridge
+
+[Install]
+WantedBy=default.target

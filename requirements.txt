@@ -1,0 +1,3 @@
+# Minimal + auditable (HOUSE_RULES sec 10). Two deps only.
+discord.py>=2.3,<3
+aiohttp>=3.9,<4
