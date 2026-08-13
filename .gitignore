@@ -7,3 +7,4 @@ token
 config.toml
 *.token
 .pytest_cache/
+FINAL-POLISH-NOTES.md

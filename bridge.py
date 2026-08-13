@@ -37,7 +37,7 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 # Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
 # additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
 # one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
-BRIDGE_VERSION = "1.1.0"
+BRIDGE_VERSION = "1.2.0"
 
 
 class Config:
@@ -60,6 +60,8 @@ class Config:
         self.api_port: int = int(b.get("api_port", 8787))
         self.rate_per_min: int = int(b.get("rate_per_min", 12))
         self.ingress_buffer: int = int(b.get("ingress_buffer", 500))
+        # Server-side /ingress long-poll window (seconds a poll blocks before returning empty).
+        self.poll_timeout_secs: float = float(b.get("poll_timeout_secs", 25.0))
 
     def load_token(self) -> str:
         with open(self.token_file, "r") as f:
@@ -186,11 +188,12 @@ class Bridge:
             self.threads[tid] = st
         return st
 
-    def _buffer_ingress(self, sender_id: str, handle: str, body: str, thread_id: int, self_origin: bool):
+    def _buffer_ingress(self, sender_id: str, handle: str, body: str, thread_id: int,
+                        self_origin: bool, mode: Optional[str] = None):
         res = enforce.wrap_ingress(sender_id, handle, body)
         self._seq += 1
         self._ingress.append({
-            "seq": self._seq, "ts": time.time(), "thread_id": thread_id,
+            "seq": self._seq, "ts": time.time(), "thread_id": thread_id, "mode": mode,
             "provenance": res.provenance, "actuation_flagged": res.actuation_flagged,
             "halt": res.halt, "self_origin": self_origin, "text": res.text,
         })
@@ -208,10 +211,11 @@ class Bridge:
         if not self._watched(message.channel):
             return
         tid = message.channel.id
+        mode = self._channel_mode(message.channel)
         res = self._buffer_ingress(str(message.author.id), message.author.display_name,
-                                   message.content, tid, self_origin=False)
+                                   message.content, tid, self_origin=False, mode=mode)
         # sec 6/sec 7.2 lifecycle only applies to ENFORCED channels; relaxed (free chat) is relay-only.
-        if self._channel_mode(message.channel) != "enforced":
+        if mode != "enforced":
             return
         st = self._thread_state(tid)
         if res.halt:
@@ -317,7 +321,8 @@ class Bridge:
             return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
 
         # Fan the post to co-located sibling agents (Discord drops our own echo in on_message).
-        self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
+        self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid,
+                             self_origin=True, mode="enforced")
         st = self._thread_state(tid)   # for a new forum post, tid is now that post's thread id
         if res.tag is None:
             if enforce.is_halt_token(body):
@@ -358,7 +363,8 @@ class Bridge:
             self.rate.refund()
             return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
         # Fan to co-located siblings (Discord drops our own echo in on_message).
-        self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid, self_origin=True)
+        self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid,
+                             self_origin=True, mode="relaxed")
         out = {"ok": True, "relaxed": True, "message_id": str(sent.id)}
         if over:
             out["routed_as_attachment"] = True
@@ -369,7 +375,7 @@ class Bridge:
             since = int(request.query.get("since", "0"))
         except ValueError:
             since = 0
-        deadline = time.time() + 25.0
+        deadline = time.time() + self.cfg.poll_timeout_secs
         while True:
             # Clear BEFORE reading the buffer so a message buffered during the read still leaves the
             # event set (no lost-wakeup: the next wait() returns immediately instead of stalling 25s).
@@ -383,9 +389,11 @@ class Bridge:
                 return web.json_response({"messages": [], "cursor": self._seq})
 
     async def handle_health(self, request: "web.Request") -> "web.Response":
+        bot_id = str(self.client.user.id) if self.client.user else None
         return web.json_response({
             "ok": True, "version": BRIDGE_VERSION, "connected": self.client.is_ready(),
-            "cursor": self._seq,
+            "cursor": self._seq, "bot_id": bot_id,
+            "channels": {str(cid): mode for cid, mode in self.cfg.channels.items()},
             "threads": {str(k): {"closed": v.closed, "halted": v.halted} for k, v in self.threads.items()},
         })
 

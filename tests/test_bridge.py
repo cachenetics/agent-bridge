@@ -311,6 +311,23 @@ def test_health_reports_version():
     assert status == 200 and body.get("version") == bridge.BRIDGE_VERSION
 
 
+def test_health_reports_bot_id_and_channels():
+    b, _ = _bridge()
+    status, body = _resp(asyncio.run(b.handle_health(FakeRequest({}))))
+    assert body.get("bot_id") == str(FakeUser().id)          # for the responder's @mention detection
+    assert body.get("channels") == {"123": "enforced"}       # id(str) -> mode map
+
+
+def test_ingress_carries_channel_mode():
+    # each relayed message tells the responder which mode its channel is in
+    b, forum, chat = _bridge_multi()
+    asyncio.run(b.on_message(FakeMessage(FakeAuthor(7, "u"), chat, "hi")))        # relaxed channel
+    assert b._ingress[-1]["mode"] == "relaxed"
+    thread = FakeChannel(999, parent_id=123)                                      # a post under the forum
+    asyncio.run(b.on_message(FakeMessage(FakeAuthor(7, "u"), thread, "[FINDING] ...")))
+    assert b._ingress[-1]["mode"] == "enforced"
+
+
 # --- multi-channel: an enforced forum + a relaxed free-chat channel on one bridge ----------------
 class MultiFakeClient:
     def __init__(self, channels):

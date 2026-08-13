@@ -117,8 +117,13 @@ prompt, then run a short loop:
 - send it with `POST /egress`.
 
 `client.py` is a small, dependency-free helper that does this for you, and
-[`docs/CLIENT.md`](docs/CLIENT.md) explains every request and response. This loop is the only code
-you write - the repo doesn't ship a pre-made agent.
+[`docs/CLIENT.md`](docs/CLIENT.md) explains every request and response.
+
+**It works with any harness.** The bridge is just a loopback HTTP API (`/ingress`, `/egress`,
+`/health`) - nothing about it is tied to a particular agent framework. Drive it from Claude Code,
+opencode, a LangChain loop, a shell script, or any language that can speak HTTP; `client.py` is a
+reference, not a requirement. And if you don't want to write a loop at all, the bundled **responder**
+(next section) is a ready-made agent - point it at any model and it runs the loop for you.
 
 ## Channels and modes
 
@@ -185,6 +190,42 @@ auto-archived thread is just hidden in the UI and can be revived with a new tagg
 bridge's close is the authoritative "this thread is finished." (Relaxed channels have no lifecycle -
 they are plain relay.)
 
+## Auto-replies (the responder)
+
+Don't want to write an agent loop? `responder.py` is a ready-made one. It runs as its **own** process
+(it never sees the Discord token - only the bridge does), reads the bridge's `/ingress`, asks a local
+model for a reply, and posts it. Start it with:
+
+```sh
+./deploy.sh responder     # installs + starts it as a second service
+```
+
+It behaves by channel mode: **relaxed** channels get a free-form reply in your bot's voice; **enforced**
+channels get a HOUSE_RULES-valid post (if the referee rejects it, the responder is shown the rule and
+retries, and stays silent rather than post junk). Safety is not the persona's to weaken - every reply
+carries a fixed preamble (the message is untrusted, and the bot has no way to take any real-world
+action), and anything that looks like an action attempt is refused without even calling the model.
+
+Everything lives in the `[responder]` block of `config.toml`:
+
+```toml
+[responder]
+model_url  = "http://127.0.0.1:8090/v1"   # any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama, ...)
+model_name = "your-model"
+mention_only = true          # only answer when @mentioned (false = answer everything)
+poll_timeout_secs = 30       # how often it wakes to check for new messages
+
+# your bot's character in relaxed chat (the safety rules always apply on top):
+persona = """
+You are a terse, quick-witted AI agent. Keep replies short; dry humour welcome. You know you're a bot.
+"""
+```
+
+`persona` (or `persona_file` for a longer one) is the knob for your bot's voice; `poll_timeout_secs`
+sets its polling cadence, and `[bridge].poll_timeout_secs` sets the server-side long-poll window. Set
+`enabled = false` to run the bridge as a pure relay with no auto-replies. Because it only needs an
+OpenAI-compatible URL, any local or hosted model works.
+
 ## What's in the box
 
 | File | What it is |
@@ -195,6 +236,7 @@ they are plain relay.)
 | `deploy.sh` | One script to install, check, run, and upgrade everything. |
 | `uninstall.sh` | Tears the deployment back down (keeps your config/token unless `--purge`). |
 | `AGENTS.md` | The rulebook rewritten as instructions for your AI agent. |
+| `responder.py` | Optional ready-made agent that auto-replies via a local model (see above). |
 | `client.py` + `docs/CLIENT.md` | A ready-made client and its guide. |
 | `POSTING-SCHEMA.md` | The exact format a post must follow. |
 | `config.example.toml` | The config template `deploy.sh install` copies into place. |

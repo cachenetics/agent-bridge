@@ -17,9 +17,10 @@
 #   ./deploy.sh service     # install + enable + start the systemd unit (needs the token first)
 #   ./deploy.sh check       # run the air-gap + import self-checks, do not deploy
 #   ./deploy.sh run         # run in the foreground from the repo (dev)
-#   ./deploy.sh update      # git pull + reinstall + restart the service (config/token untouched)
+#   ./deploy.sh update      # git pull + reinstall + restart the service(s) (config/token untouched)
+#   ./deploy.sh responder   # install + enable + start the optional auto-reply agent (responder.py)
 #
-# To tear it all down, see ./uninstall.sh (stops+removes the unit and install prefix; --purge also
+# To tear it all down, see ./uninstall.sh (stops+removes the units and install prefix; --purge also
 # removes config+token).
 #
 # The Discord bot token and guild/channel IDs are OUT-OF-BAND inputs only the operator supplies;
@@ -52,9 +53,14 @@ cmd_install() {
   "$VENV/bin/pip" install --quiet --upgrade pip
   "$VENV/bin/pip" install --quiet -r "$REPO_DIR/requirements.txt"
 
-  install -m 0644 "$REPO_DIR/bridge.py"      "$PREFIX/bridge.py"
-  install -m 0644 "$REPO_DIR/enforce.py"     "$PREFIX/enforce.py"
-  install -m 0644 "$REPO_DIR/HOUSE_RULES.md" "$PREFIX/HOUSE_RULES.md"   # the unit's Documentation= target
+  install -m 0644 "$REPO_DIR/bridge.py"        "$PREFIX/bridge.py"
+  install -m 0644 "$REPO_DIR/enforce.py"       "$PREFIX/enforce.py"
+  install -m 0644 "$REPO_DIR/HOUSE_RULES.md"   "$PREFIX/HOUSE_RULES.md"   # the unit's Documentation= target
+  # The optional responder agent + the files it needs (client lib + the enforced-channel contract).
+  install -m 0644 "$REPO_DIR/responder.py"     "$PREFIX/responder.py"
+  install -m 0644 "$REPO_DIR/client.py"        "$PREFIX/client.py"
+  install -m 0644 "$REPO_DIR/AGENTS.md"        "$PREFIX/AGENTS.md"
+  install -m 0644 "$REPO_DIR/POSTING-SCHEMA.md" "$PREFIX/POSTING-SCHEMA.md"
 
   if [[ ! -f "$CONFIG_FILE" ]]; then
     log "writing config skeleton to $CONFIG_FILE (EDIT IT: guild_id, channel_id, archive_root)"
@@ -127,6 +133,22 @@ cmd_run() {
   AGENT_BRIDGE_CONFIG="$CONFIG_FILE" "$PY" "$PREFIX/bridge.py"
 }
 
+cmd_responder() {
+  # Install + start the optional autonomous responder (responder.py) as its own --user unit.
+  # It needs the bridge running and a reachable OpenAI-compatible model (see [responder] in config).
+  cmd_install
+  local unit_dir="$HOME/.config/systemd/user"
+  mkdir -p "$unit_dir"
+  sed -e "s|@PY@|$PY|g" \
+      -e "s|@PREFIX@|$PREFIX|g" \
+      -e "s|@CONFIG_FILE@|$CONFIG_FILE|g" \
+      "$REPO_DIR/systemd/agent-bridge-responder.service" > "$unit_dir/$SERVICE_NAME-responder.service"
+  systemctl --user daemon-reload
+  systemctl --user enable --now "$SERVICE_NAME-responder.service"
+  log "responder started: systemctl --user status $SERVICE_NAME-responder"
+  log "  (it replies via the model in [responder]; set enabled=false there to turn it off)"
+}
+
 cmd_update() {
   # One-command upgrade: pull the latest code, reinstall, restart the service if it is running.
   # Config and token live outside the repo (in $CONFIG_DIR) and are never touched.
@@ -145,13 +167,19 @@ cmd_update() {
   else
     log "installed; service not running - start it with '$0 service'"
   fi
+  # The responder is opt-in, but if it is already running, roll it onto the new code too.
+  if systemctl --user is-active --quiet "$SERVICE_NAME-responder.service" 2>/dev/null; then
+    systemctl --user restart "$SERVICE_NAME-responder.service"
+    log "restarted $SERVICE_NAME-responder on the updated code"
+  fi
 }
 
 case "${1:-install}" in
-  install) cmd_install ;;
-  check)   cmd_check ;;
-  service) cmd_service ;;
-  run)     cmd_run ;;
-  update)  cmd_update ;;
-  *) die "unknown subcommand '${1:-}'. Use: install | check | service | run | update" ;;
+  install)   cmd_install ;;
+  check)     cmd_check ;;
+  service)   cmd_service ;;
+  responder) cmd_responder ;;
+  run)       cmd_run ;;
+  update)    cmd_update ;;
+  *) die "unknown subcommand '${1:-}'. Use: install | check | service | responder | run | update" ;;
 esac

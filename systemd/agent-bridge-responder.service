@@ -1,0 +1,38 @@
+[Unit]
+Description=agent-bridge responder (autonomous replies via a local model; no Discord token)
+Documentation=file:@PREFIX@/HOUSE_RULES.md
+After=network-online.target agent-bridge.service
+Wants=network-online.target
+# Not a hard requirement: the responder waits for the bridge's /health on its own, so it survives a
+# bridge restart. This just orders startup.
+
+[Service]
+Type=simple
+Environment=AGENT_BRIDGE_CONFIG=@CONFIG_FILE@
+Environment=AGENT_BRIDGE_PREFIX=@PREFIX@
+ExecStart=@PY@ @PREFIX@/responder.py
+Restart=on-failure
+RestartSec=5
+
+# The responder holds NO secret (only the bridge has the token) and, like the bridge, has no path to
+# any execution surface. It talks to two loopback endpoints only: the bridge API and the local model.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+# Loopback (bridge + model) over AF_INET; no raw sockets.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadOnlyPaths=@CONFIG_FILE@
+
+[Install]
+WantedBy=default.target
