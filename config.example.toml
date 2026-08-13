@@ -30,6 +30,8 @@ api_port = 8787
 rate_per_min   = 12       # max outbound posts/min through /egress
 ingress_buffer = 500      # ring-buffer depth of wrapped inbound messages
 poll_timeout_secs = 25    # /ingress long-poll window: how long a poll waits before returning empty
+max_chunks = 4            # a relaxed reply over Discord's 2000-char cap is split into up to this many
+                          #   messages; beyond that it rides as one file attachment (no channel flood)
 
 
 # ===================================================================================================
@@ -52,6 +54,8 @@ max_reply_tokens = 300
 poll_timeout_secs   = 30  # how often the responder wakes to check for messages (>= bridge's above)
 request_timeout_secs = 90 # model-call timeout
 enforced_retries = 2      # tries to satisfy the schema on an enforced channel before giving up
+strip_think = true        # strip <think>...</think> chain-of-thought from replies (for reasoning
+                          #   models like DeepSeek-R1/QwQ; harmless no-op for models that don't emit it)
 context_messages = 12     # recent channel messages shown to the model when it replies (so it is not
                           #   answering cold). The responder watches every message to keep this window.
 

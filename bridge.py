@@ -37,7 +37,7 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 # Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
 # additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
 # one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
-BRIDGE_VERSION = "1.5.0"
+BRIDGE_VERSION = "1.6.0"
 
 
 class Config:
@@ -60,6 +60,9 @@ class Config:
         self.api_port: int = int(b.get("api_port", 8787))
         self.rate_per_min: int = int(b.get("rate_per_min", 12))
         self.ingress_buffer: int = int(b.get("ingress_buffer", 500))
+        # Relaxed-channel replies over Discord's 2000-char cap are split into up to max_chunks messages;
+        # beyond that they ride as a single file attachment (so nothing floods the channel).
+        self.max_chunks: int = int(b.get("max_chunks", 4))
         # Server-side /ingress long-poll window (seconds a poll blocks before returning empty).
         self.poll_timeout_secs: float = float(b.get("poll_timeout_secs", 25.0))
 
@@ -137,6 +140,24 @@ def _is_forum(channel) -> bool:
     """A Discord forum channel - every post in it IS a thread, so egress with no thread_id means
     'start a new post' rather than 'send to the channel root' (forums have no free-text root)."""
     return getattr(channel, "type", None) == discord.ChannelType.forum
+
+
+def _chunk_message(text: str, size: int = 1900):
+    """Split text into <=size-char chunks for Discord's 2000-char cap, preferring newline then space
+    boundaries so words/lines aren't cut mid-token; hard-splits only if a single run exceeds size."""
+    chunks, rest = [], text
+    while len(rest) > size:
+        window = rest[:size]
+        cut = window.rfind("\n")
+        if cut < size // 2:
+            cut = window.rfind(" ")
+        if cut < size // 2:
+            cut = size
+        chunks.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    if rest:
+        chunks.append(rest)
+    return chunks
 
 
 def _resolve_forum_tags(channel, names):
@@ -369,15 +390,21 @@ class Bridge:
             return web.json_response(
                 {"ok": False, "reason": f"sec 10 rate limit: >{self.cfg.rate_per_min}/min"}, status=429)
         bot_id = str(self.client.user.id) if self.client.user else "bridge"
-        over = len(body) > 1900   # Discord's 2000-char hard cap: overflow rides as a file (transport, not a rule)
+        # Discord's 2000-char cap: chunk into readable messages up to max_chunks; beyond that, attach.
+        chunks = _chunk_message(body) if len(body) > 1900 else [body]
+        attach = len(chunks) > self.cfg.max_chunks
         try:
-            if over:
+            if attach:
                 abstract = "\n".join(body.splitlines()[:3])
                 sent = await channel.send(
                     content=abstract + "\n[full message attached: message.md]",
                     file=discord.File(io.BytesIO(body.encode()), filename="message.md"))
             else:
-                sent = await channel.send(body)
+                sent = None
+                for ch in chunks:
+                    s = await channel.send(ch)
+                    if sent is None:
+                        sent = s   # report the FIRST message's id
         except Exception as e:
             self.rate.refund()
             return web.json_response({"ok": False, "reason": f"discord send failed: {e}"}, status=502)
@@ -385,8 +412,10 @@ class Bridge:
         self._buffer_ingress(bot_id, f"{handle} (local, unverified)", body, tid,
                              self_origin=True, mode="relaxed")
         out = {"ok": True, "relaxed": True, "message_id": str(sent.id)}
-        if over:
+        if attach:
             out["routed_as_attachment"] = True
+        elif len(chunks) > 1:
+            out["chunks"] = len(chunks)
         return web.json_response(out)
 
     async def handle_ingress(self, request: "web.Request") -> "web.Response":

@@ -365,6 +365,32 @@ def test_config_single_channel_backcompat_is_enforced():
     assert cfg.channels == {77: "enforced"} and cfg.channel_id == 77
 
 
+def test_chunk_message_splits_on_boundaries():
+    text = "\n".join(f"line {i} " + "x" * 100 for i in range(60))   # well over 1900 chars
+    chunks = bridge._chunk_message(text, 1900)
+    assert len(chunks) > 1
+    assert all(len(c) <= 1900 for c in chunks)
+    assert "".join(chunks).replace("\n", "").replace(" ", "") == text.replace("\n", "").replace(" ", "")
+
+
+def test_relaxed_long_reply_chunks_into_multiple_messages():
+    b, _forum, chat = _bridge_multi()
+    body = "a wall of chat. " * 300                                  # ~4800 chars -> multiple chunks
+    status, resp = _resp(asyncio.run(b.handle_egress(FakeRequest({"body": body, "channel_id": 456}))))
+    assert status == 200 and resp["ok"]
+    assert resp.get("chunks", 1) > 1 and not resp.get("routed_as_attachment")
+    assert len(chat.sent) == resp["chunks"]                          # one send per chunk, no attachment
+    assert all(not has_file for _c, has_file in chat.sent)
+
+
+def test_relaxed_huge_reply_beyond_max_chunks_attaches():
+    b, _forum, chat = _bridge_multi()                                # max_chunks defaults to 4
+    body = "x" * 20000                                               # ~11 chunks > 4 -> attach
+    status, resp = _resp(asyncio.run(b.handle_egress(FakeRequest({"body": body, "channel_id": 456}))))
+    assert status == 200 and resp.get("routed_as_attachment")
+    assert len(chat.sent) == 1 and chat.sent[0][1] is True           # single message, with a file
+
+
 def test_relaxed_channel_relays_untagged_chat():
     # free chat: an untagged body that would 422 on the forum posts fine on the relaxed channel
     b, _forum, chat = _bridge_multi()
