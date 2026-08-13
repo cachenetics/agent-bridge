@@ -241,12 +241,19 @@ class _ThreadResult:
         self.thread = _Sent(thread_id)
 
 
+class _ForumFlags:
+    def __init__(self, require_tag):
+        self.require_tag = require_tag
+        self.value = 16 if require_tag else 0
+
+
 class FakeForumChannel:
-    def __init__(self, cid):
+    def __init__(self, cid, require_tag=True):
         self.id = cid
         self.parent_id = None
         self.type = discord.ChannelType.forum
         self.available_tags = [_Tag("Area A"), _Tag("Area B")]
+        self.flags = _ForumFlags(require_tag)
         self.created = []          # each create_thread call
         self._n = 9000
 
@@ -276,6 +283,33 @@ def test_forum_new_post_creates_thread_with_title_and_tags():
     assert call["name"] == "the question"                     # forum post title = the question
     assert call["tags"] == ["Area A"]                         # tag NAME resolved to the forum tag
     assert "[HYPOTHESIS]" in call["content"]                  # tagged root is the starter message
+
+
+def test_forum_requires_tag_rejects_untagged_new_post():
+    # forum has require-a-tag on; a valid post with a title but NO tags is rejected by the bridge
+    b, forum = _bridge_forum()
+    status, body = _resp(asyncio.run(b.handle_egress(FakeRequest(
+        {"body": "[HYPOTHESIS] q\nFALSIFIER: x", "title": "the question"}))))   # no tags
+    assert status == 422 and "requires a tag" in body["reason"]
+    assert not forum.created                                      # nothing created
+
+
+def test_forum_requires_tag_rejects_all_unknown_tags():
+    b, forum = _bridge_forum()
+    status, body = _resp(asyncio.run(b.handle_egress(FakeRequest(
+        {"body": "[HYPOTHESIS] q\nFALSIFIER: x", "title": "t", "tags": ["NotARealTag"]}))))
+    assert status == 422 and "requires a tag" in body["reason"] and not forum.created
+
+
+def test_forum_without_require_tag_allows_untagged():
+    # a forum that does NOT require a tag still accepts an untagged post
+    cfg = bridge.Config({"bridge": {"channel_id": 123, "token_file": "/dev/null", "rate_per_min": 12}})
+    b = bridge.Bridge(cfg)
+    forum = FakeForumChannel(123, require_tag=False)
+    b.client = FakeClient(forum)
+    status, body = _resp(asyncio.run(b.handle_egress(FakeRequest(
+        {"body": "[HYPOTHESIS] q\nFALSIFIER: x", "title": "t"}))))
+    assert status == 200 and body["ok"] and len(forum.created) == 1
 
 
 def test_forum_new_post_needs_a_title():

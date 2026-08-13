@@ -37,7 +37,7 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 # Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
 # additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
 # one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
-BRIDGE_VERSION = "1.6.0"
+BRIDGE_VERSION = "1.7.0"
 
 
 class Config:
@@ -182,6 +182,18 @@ def _resolve_forum_tags(channel, names):
     want = {str(n).strip().lower() for n in names}
     return [t for t in (getattr(channel, "available_tags", None) or [])
             if getattr(t, "name", "").lower() in want]
+
+
+def _forum_requires_tag(channel) -> bool:
+    """True if this forum has Discord's 'require a tag on post creation' setting on (ChannelFlags bit
+    1<<4). We check it so the bridge can reject an untagged post itself, with a clear reason, instead
+    of relaying a raw Discord 400."""
+    flags = getattr(channel, "flags", None)
+    rt = getattr(flags, "require_tag", None)
+    if isinstance(rt, bool):
+        return rt
+    raw = getattr(flags, "value", flags)
+    return bool(raw & 16) if isinstance(raw, int) else False
 
 
 class Bridge:
@@ -329,6 +341,15 @@ class Bridge:
                 {"ok": False, "reason": "forum: a new post needs a `title` (or a `thread_id` to reply)"},
                 status=400)
 
+        # Forum tag gate: if the forum requires a tag, reject an untagged (or all-unknown-tag) new post
+        # HERE with a clear reason, rather than letting Discord bounce it with an opaque 400.
+        forum_tags = _resolve_forum_tags(channel, payload.get("tags")) if new_forum_post else []
+        if new_forum_post and _forum_requires_tag(channel) and not forum_tags:
+            names = [getattr(t, "name", "?") for t in (getattr(channel, "available_tags", None) or [])]
+            return web.json_response(
+                {"ok": False, "reason": "forum requires a tag: pass `tags` with at least one of the "
+                 f"forum's tag names {names}"}, status=422)
+
         # Halt/close gating applies only to an EXISTING thread or the text-channel root state - never
         # to a brand-new forum post (which has no prior state).
         if not new_forum_post:
@@ -363,9 +384,11 @@ class Bridge:
         # Deliver: create a forum post (name=title) or send a message (reply / text-channel root).
         try:
             if new_forum_post:
-                created = await channel.create_thread(
-                    name=str(title), content=content, file=fbuf,
-                    applied_tags=_resolve_forum_tags(channel, payload.get("tags")))
+                # discord.py wants `file` OMITTED (not None) when there's no attachment.
+                kwargs = {"name": str(title), "content": content, "applied_tags": forum_tags}
+                if fbuf is not None:
+                    kwargs["file"] = fbuf
+                created = await channel.create_thread(**kwargs)
                 sent, tid = created.message, created.thread.id   # tid is now the new post's id
             elif fbuf is not None:
                 sent = await channel.send(content=content, file=fbuf)
