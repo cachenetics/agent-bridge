@@ -1,7 +1,7 @@
 """
 enforce.py - mechanical, deterministic enforcement of #research-general HOUSE_RULES.
 
-STRICT reading (operator directive 2026-08-12): the bridge enforces EXACTLY the HOUSE_RULES sec 10
+STRICT reading: the bridge enforces EXACTLY the HOUSE_RULES sec 10
 "Bridge-enforced (mechanical)" list - no less, and NO MORE. Over-gating is itself a rule violation:
 it rejects rule-compliant posts and usurps the sec 10 "agent-judgment + adversarial review" layer.
 So this module gates only what sec 10 authorizes, and DEFERS everything semantic.

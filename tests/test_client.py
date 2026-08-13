@@ -22,7 +22,7 @@ def test_client_tokens_equal_enforce_tokens():
 
 
 def test_halt_token_carries_the_em_dash():
-    # The load-bearing detail agents get wrong: a hyphen variant does NOT halt.
+    # The canonical token must keep its em-dash: a strict peer bridge matches these exact bytes.
     assert "—" in client.HALT_TOKEN
     assert client.HALT_TOKEN != client.HALT_TOKEN.replace("—", "-")
 

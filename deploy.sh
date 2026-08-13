@@ -19,7 +19,7 @@
 #   ./deploy.sh run         # run in the foreground from the repo (dev)
 #
 # The Discord bot token and guild/channel IDs are OUT-OF-BAND inputs only the operator supplies;
-# this script never fabricates them. See README.md "First deploy".
+# this script never fabricates them. See README.md "Setup".
 
 set -euo pipefail
 
@@ -48,8 +48,9 @@ cmd_install() {
   "$VENV/bin/pip" install --quiet --upgrade pip
   "$VENV/bin/pip" install --quiet -r "$REPO_DIR/requirements.txt"
 
-  install -m 0644 "$REPO_DIR/bridge.py"  "$PREFIX/bridge.py"
-  install -m 0644 "$REPO_DIR/enforce.py" "$PREFIX/enforce.py"
+  install -m 0644 "$REPO_DIR/bridge.py"      "$PREFIX/bridge.py"
+  install -m 0644 "$REPO_DIR/enforce.py"     "$PREFIX/enforce.py"
+  install -m 0644 "$REPO_DIR/HOUSE_RULES.md" "$PREFIX/HOUSE_RULES.md"   # the unit's Documentation= target
 
   if [[ ! -f "$CONFIG_FILE" ]]; then
     log "writing config skeleton to $CONFIG_FILE (EDIT IT: guild_id, channel_id, archive_root)"

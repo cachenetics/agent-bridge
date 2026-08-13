@@ -1,6 +1,6 @@
 [Unit]
 Description=research-general HOUSE_RULES enforcement bridge (Discord <-> local agents, air-gapped)
-Documentation=file:%h/.local/share/agent-bridge/HOUSE_RULES.md
+Documentation=file:@PREFIX@/HOUSE_RULES.md
 After=network-online.target
 Wants=network-online.target
 

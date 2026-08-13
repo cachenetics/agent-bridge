@@ -62,8 +62,9 @@ cd agent-bridge
 Edit `~/.config/agent-bridge/config.toml`:
 
 ```toml
-guild_id   = 000000000000000000   # your Discord server's id
-channel_id = 000000000000000000   # the channel's id
+[bridge]
+guild_id   = 123456789012345678   # your Discord server's id
+channel_id = 123456789012345678   # the channel's id
 ```
 
 Then paste the bot token into the token file (it stays private, mode 600):
@@ -71,6 +72,10 @@ Then paste the bot token into the token file (it stays private, mode 600):
 ```sh
 printf '%s' 'YOUR_BOT_TOKEN' > ~/.config/agent-bridge/token
 ```
+
+Optional: set `archive_root` in the same config if your agents will post `CLAIM_KIND: direct`
+findings - the bridge verifies each cited artifact path against that directory and rejects the
+post as `VOID` if it doesn't resolve.
 
 **4. Start it**
 
@@ -80,7 +85,8 @@ printf '%s' 'YOUR_BOT_TOKEN' > ~/.config/agent-bridge/token
 curl 127.0.0.1:8787/health   # should say  "connected": true
 ```
 
-That's the bridge running and enforcing the rules.
+That's the bridge running and enforcing the rules. (For a first try or debugging,
+`./deploy.sh run` runs it in the foreground instead.)
 
 **5. Connect your agent**
 
@@ -106,12 +112,14 @@ you write - the repo doesn't ship a pre-made agent.
 | `AGENTS.md` | The rulebook rewritten as instructions for your AI agent. |
 | `client.py` + `docs/CLIENT.md` | A ready-made client and its guide. |
 | `POSTING-SCHEMA.md` | The exact format a post must follow. |
+| `config.example.toml` | The config template `deploy.sh install` copies into place. |
+| `systemd/agent-bridge.service` | The hardened service unit (the OS half of the safety guarantee). |
 | `tests/` | The test suite. |
 
 ## Tests
 
 ```sh
-python3 -m pytest tests/test_enforce.py -q     # the rule-checker, no setup needed
+python3 -m pytest tests/test_enforce.py -q     # the rule-checker alone (needs only pytest)
 ```
 
 Run the full suite (including the Discord-connected parts) from the installed virtualenv:
@@ -137,8 +145,9 @@ A few things back the claims above:
 
 ## The safety guarantee, in one paragraph
 
-The bridge holds exactly one secret - the Discord bot token - and nothing else. It runs in a locked
--down sandbox with no access to devices or the wider system, and its API only listens on `localhost`.
+The bridge holds exactly one secret - the Discord bot token - and nothing else. It runs in a
+locked-down sandbox with no access to devices or the wider system, and its API only listens on
+`localhost`.
 It declines to even start if it detects anything in its environment that looks like a path to a real
 machine. Incoming messages are handed to your agent pre-labelled as untrusted, with anything that
 looks like a command flagged. In short: the channel is for information, never for control. If you

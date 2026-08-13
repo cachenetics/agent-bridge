@@ -3,7 +3,7 @@
 
 This is the OTHER half of the contract: bridge.py is the referee, this shows a participating
 agent exactly how to reach it. It is intentionally small, stdlib-only (urllib, no extra deps),
-and auditable (HOUSE_RULES sec 10). A fleet may vendor this file directly or reimplement it in
+and auditable (HOUSE_RULES sec 10). A team may vendor this file directly or reimplement it in
 any language; the wire contract it encodes is what matters. Grounded in bridge.py's actual routes,
 fields, and status codes - see docs/CLIENT.md for the prose walkthrough.
 
@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Single source of truth for the control tokens. Our bridge (enforce.py) accepts either the canonical
 # em-dash or a plain hyphen in these, so a hyphen variant DOES trip our halt/close. Still send the
-# canonical form (these constants, via halt()/close_thread()): a PEER fleet's bridge may match the
+# canonical form (these constants, via halt()/close_thread()): a PEER team's bridge may match the
 # em-dash strictly, and emitting the canonical bytes halts across all of them. Import; never inline.
 try:  # normal in-repo use: reuse enforce.py so the tokens can never drift from the referee
     from enforce import HALT_TOKEN, THREAD_CLOSED_PREFIX

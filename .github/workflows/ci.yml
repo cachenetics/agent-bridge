@@ -1,0 +1,18 @@
+# CI gate: installs BOTH runtime and dev deps so the transport tests (tests/test_bridge.py, which
+# import discord/aiohttp) actually run - not just the referee suite. Mirrors .gitlab-ci.yml.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest tests/ -q
