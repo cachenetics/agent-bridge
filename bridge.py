@@ -149,7 +149,11 @@ def _chunk_message(text: str, size: int = 1900):
     start of the next, so every message renders a valid, self-contained code block."""
     chunks, rest, in_fence = [], text, False
     while True:
-        prefix = "```\n" if in_fence else ""          # reopen a code block carried from the last chunk
+        # Continuation messages get a leading blank line so they don't butt against the previous one.
+        # Discord strips plain leading/trailing whitespace, but a zero-width space is preserved, so
+        # "​\n" forces a leading blank line that survives (the ariel-bridge separator).
+        sep = "​\n" if chunks else ""
+        prefix = sep + ("```\n" if in_fence else "")  # reopen a code block carried from the last chunk
         if len(prefix) + len(rest) <= size:
             chunks.append(prefix + rest)
             break
