@@ -37,7 +37,7 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 # Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
 # additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
 # one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
-BRIDGE_VERSION = "1.2.0"
+BRIDGE_VERSION = "1.3.0"
 
 
 class Config:
@@ -194,6 +194,7 @@ class Bridge:
         self._seq += 1
         self._ingress.append({
             "seq": self._seq, "ts": time.time(), "thread_id": thread_id, "mode": mode,
+            "author": handle, "body": body,   # raw components, for building display/context transcripts
             "provenance": res.provenance, "actuation_flagged": res.actuation_flagged,
             "halt": res.halt, "self_origin": self_origin, "text": res.text,
         })

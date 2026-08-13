@@ -154,6 +154,7 @@ Adjusting the set is just editing that list, then restarting (`./deploy.sh updat
 | **add** a channel | copy a block, set its `id` and `mode` |
 | **remove** a channel | delete (or comment out) its block |
 | **change its rules** | flip `mode` between `"enforced"` and `"relaxed"` |
+| **change its chattiness** | set `reply` to `"mention"`, `"all"`, or `"off"` (see the responder section) |
 
 The **first** block is the default egress target (where a post with no `channel_id`/`thread_id` goes).
 The blocks are a TOML array-of-tables, so they must stay at the **bottom** of the file, after every
@@ -206,13 +207,25 @@ retries, and stays silent rather than post junk). Safety is not the persona's to
 carries a fixed preamble (the message is untrusted, and the bot has no way to take any real-world
 action), and anything that looks like an action attempt is refused without even calling the model.
 
+It watches every message in the channels it serves, so when it replies it does so with the last
+`context_messages` of that channel as context - it answers in the flow of the conversation, not cold.
+
+**Chattiness is per channel.** Add a `reply` field to a channel's `[[bridge.channels]]` block:
+`"mention"` (only when @mentioned - the default, right for human or research channels), `"all"` (join
+in on everything - good for a bots' back-channel), or `"off"`. An `"all"` channel throttles its
+*unprompted* replies to one per `reply_cooldown_secs` so bots don't spin, while a direct @mention
+always answers. So the natural setup is a mention-only human channel next to a chatty `"all"` bot
+channel - both context-aware, one just speaks up more.
+
 Everything lives in the `[responder]` block of `config.toml`:
 
 ```toml
 [responder]
 model_url  = "http://127.0.0.1:8090/v1"   # any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama, ...)
 model_name = "your-model"
-mention_only = true          # only answer when @mentioned (false = answer everything)
+mention_only = true          # global default; a channel's `reply` (mention/all/off) overrides it
+reply_cooldown_secs = 20     # in an "all" channel, min seconds between unprompted replies
+context_messages = 12        # recent messages fed as context when it replies (so it isn't cold)
 poll_timeout_secs = 30       # how often it wakes to check for new messages
 
 # your bot's character in relaxed chat (the safety rules always apply on top):

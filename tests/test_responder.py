@@ -123,3 +123,77 @@ def test_reply_in_enforced_toggle(monkeypatch):
 def test_persona_default_and_override():
     assert "terse" in _cfg().persona                       # default persona
     assert _cfg(persona="be a pirate").persona == "be a pirate"
+
+
+def test_raw_body_and_author_from_wrapped_text():
+    # with no raw fields (older bridge), the responder recovers body+author from the wrapped text
+    w = enforce.wrap_ingress("77", "alice", "hello world")
+    m = {"text": w.text, "provenance": w.provenance}
+    assert responder._raw_body(m) == "hello world"
+    assert responder._author(m) == "alice"
+
+
+def test_raw_body_prefers_explicit_field():
+    m = {"body": "raw here", "text": "wrapped...", "author": "bob"}
+    assert responder._raw_body(m) == "raw here" and responder._author(m) == "bob"
+
+
+def test_context_block_builds_transcript_and_labels_self():
+    import collections
+    dq = collections.deque()
+    for seq, (a, b, s) in enumerate([("alice", "hi", False), ("bot", "hey", True),
+                                     ("alice", "ping?", False)], start=1):
+        dq.append({"seq": seq, "author": a, "body": b, "self": s})
+    block = responder._context_block(_cfg(context_messages=12), dq, exclude_seq=3)  # exclude trigger
+    assert "alice: hi" in block and "you: hey" in block     # own line labelled 'you'
+    assert "ping?" not in block                             # the triggering msg is excluded
+
+
+def test_channel_reply_policy_all_replies_unprompted(monkeypatch):
+    monkeypatch.setattr(responder, "chat", lambda *a, **k: "chatter")
+    cfg = responder.ResponderConfig({"responder": {"enforced_prompt_files": []},
+                                     "bridge": {"channels": [{"id": 55, "reply": "all"}]}})
+    bc = BC()
+    posted = responder.handle_message(cfg, bc, _msg("hey all", mention=False), BOT)
+    assert posted and bc.posts and bc.posts[0][1] == "chatter"   # replies without a mention
+
+
+def test_channel_reply_policy_off_stays_silent(monkeypatch):
+    monkeypatch.setattr(responder, "chat", lambda *a, **k: "nope")
+    cfg = responder.ResponderConfig({"responder": {"enforced_prompt_files": []},
+                                     "bridge": {"channels": [{"id": 55, "reply": "off"}]}})
+    bc = BC()
+    # even a direct mention is ignored in an "off" channel
+    assert not responder.handle_message(cfg, bc, _msg("hi", mention=True), BOT)
+    assert not bc.posts
+
+
+def test_all_channel_cooldown_blocks_unprompted_but_mention_bypasses(monkeypatch):
+    monkeypatch.setattr(responder, "chat", lambda *a, **k: "x")
+    cfg = responder.ResponderConfig({"responder": {"enforced_prompt_files": []},
+                                     "bridge": {"channels": [{"id": 55, "reply": "all"}]}})
+    bc = BC()
+    # unprompted while cooled down -> silent
+    assert not responder.handle_message(cfg, bc, _msg("noise", mention=False), BOT,
+                                        unprompted_allowed=False)
+    # but a direct mention still answers despite the cooldown
+    assert responder.handle_message(cfg, bc, _msg("hey bot", mention=True), BOT,
+                                    unprompted_allowed=False)
+    assert len(bc.posts) == 1
+
+
+def test_default_policy_follows_mention_only():
+    assert responder.ResponderConfig({"responder": {"mention_only": True}}).reply_policy(1) == "mention"
+    assert responder.ResponderConfig({"responder": {"mention_only": False}}).reply_policy(1) == "all"
+
+
+def test_context_passed_into_relaxed_reply(monkeypatch):
+    seen = {}
+    def spy(cfg, system, user, extra_system=None):
+        seen["ctx"] = extra_system; seen["user"] = user
+        return "ok"
+    monkeypatch.setattr(responder, "chat", spy)
+    bc = BC()
+    responder.handle_message(_cfg(), bc, _msg("what were we saying?"), BOT, context="alice: earlier")
+    assert seen["ctx"] == "alice: earlier"                  # context reaches the model
+    assert "what were we saying?" in seen["user"]
