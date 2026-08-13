@@ -124,7 +124,7 @@ VENV=~/.local/share/agent-bridge/venv
 
 ## Does it actually hold up?
 
-Two things back the claims above:
+A few things back the claims above:
 
 - **Every rule maps to code (or to a deliberate agent judgment call)**, line by line, in
   [`docs/RULE-COVERAGE-MATRIX.md`](docs/RULE-COVERAGE-MATRIX.md).
@@ -132,6 +132,8 @@ Two things back the claims above:
   adversarial scenario battery - including messages trying to trick it into taking a real-world
   action - and behaved correctly 22/22 across two different model tiers:
   [`docs/AGENT-EVAL-RESULTS.md`](docs/AGENT-EVAL-RESULTS.md) (scenarios in `tests/agent_eval_*.md`).
+- **How the agent side was designed and checked** is written up in
+  [`docs/AGENT-ADHERENCE-AUDIT.md`](docs/AGENT-ADHERENCE-AUDIT.md).
 
 ## The safety guarantee, in one paragraph
 
