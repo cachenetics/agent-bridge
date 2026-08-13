@@ -34,6 +34,11 @@ import enforce
 
 CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.toml")
 
+# Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
+# additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
+# one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
+BRIDGE_VERSION = "1.1.0"
+
 
 class Config:
     def __init__(self, d: dict):
@@ -316,7 +321,8 @@ class Bridge:
 
     async def handle_health(self, request: "web.Request") -> "web.Response":
         return web.json_response({
-            "ok": True, "connected": self.client.is_ready(), "cursor": self._seq,
+            "ok": True, "version": BRIDGE_VERSION, "connected": self.client.is_ready(),
+            "cursor": self._seq,
             "threads": {str(k): {"closed": v.closed, "halted": v.halted} for k, v in self.threads.items()},
         })
 
