@@ -91,6 +91,13 @@ class ResponderConfig:
         self.api_key: str = str(r.get("api_key", ""))
         self.temperature: float = float(r.get("temperature", 0.7))
         self.max_reply_tokens: int = int(r.get("max_reply_tokens", 300))
+        # Model-tuning lever: an arbitrary dict merged into every /chat/completions request body, so a
+        # user can tune their model from config.toml with no code change. Put ANY OpenAI/vLLM sampling
+        # field here - top_p, top_k, min_p, repetition_penalty, presence_penalty, stop, seed, and
+        # chat_template_kwargs (e.g. {enable_thinking = false} to stop a reasoning model spending the
+        # whole token budget on hidden CoT). Merged LAST, so it also overrides temperature/max_tokens
+        # if you set them here. `sampling_params` is accepted as an alias.
+        self.extra_body: dict = dict(r.get("extra_body", r.get("sampling_params", {})) or {})
         self.request_timeout_secs: float = float(r.get("request_timeout_secs", 90.0))
         # The /ingress long-poll client timeout. Keep >= the bridge's poll_timeout_secs so one poll
         # covers one server window; the responder just loops, so this only sets how often it wakes.
@@ -164,10 +171,16 @@ def chat(cfg: ResponderConfig, system: str, user: str, extra_system: Optional[st
         sys_content += f"\n\n{extra_system}"
     messages = [{"role": "system", "content": sys_content},
                 {"role": "user", "content": user}]
-    body = json.dumps({
+    payload = {
         "model": cfg.model_name, "messages": messages,
         "temperature": cfg.temperature, "max_tokens": cfg.max_reply_tokens,
-    }).encode()
+    }
+    if cfg.extra_body:                      # user's config.toml model-tuning lever, merged last
+        # Sampling knobs only: never let config replace the assembled request. `messages`/`model` carry
+        # the non-overridable SAFETY_PREAMBLE + system contract; `stream` would break json.loads below.
+        payload.update({k: v for k, v in cfg.extra_body.items()
+                        if k not in ("messages", "model", "stream")})
+    body = json.dumps(payload).encode()
     req = urllib.request.Request(cfg.model_url + "/chat/completions", data=body, method="POST")
     req.add_header("Content-Type", "application/json")
     if cfg.api_key:
@@ -359,6 +372,8 @@ def run():
         for m in msgs:
             record(m)                                   # every message (incl. our own) feeds context
         for m in bridge_client.filter_ingress(msgs):    # but only reply to others' messages
+            if m.get("backfill"):                       # pre-connect history: context only, no reply
+                continue
             try:
                 tid = m.get("thread_id")
                 ctx = _context_block(cfg, history.get(tid), m.get("seq"))

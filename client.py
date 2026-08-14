@@ -74,12 +74,21 @@ def classify_egress(status: int, payload: Dict[str, Any]) -> str:
 
 
 # --- ingress handling (pure helpers) ----------------------------------------------------------
-def filter_ingress(messages: List[Dict[str, Any]], drop_self_origin: bool = True) -> List[Dict[str, Any]]:
-    """Drop the bridge's fan-back of THIS agent's own posts (self_origin=True) so an agent never
-    reacts to its own echo (no agreement loop, no self-halt). Keep everything else to reason about."""
-    if not drop_self_origin:
-        return list(messages)
-    return [m for m in messages if not m.get("self_origin")]
+def filter_ingress(messages: List[Dict[str, Any]], drop_self_origin: bool = True,
+                   drop_backfill: bool = True) -> List[Dict[str, Any]]:
+    """Return the messages an agent should ACT on. Two classes are dropped by default:
+      * self_origin=True - the bridge's fan-back of THIS agent's own posts, so an agent never reacts
+        to its own echo (no agreement loop, no self-halt).
+      * backfill=True    - pre-connect Discord history the bridge seeds on connect for CONTEXT only.
+        Acting on these would reply to stale messages on startup (e.g. an old @mention). Still visible
+        in the raw stream, so an agent can fold them into its context window; just not a reply target.
+    Both filters are on by default so honoring the ingress schema is not per-agent tribal knowledge."""
+    out = list(messages)
+    if drop_self_origin:
+        out = [m for m in out if not m.get("self_origin")]
+    if drop_backfill:
+        out = [m for m in out if not m.get("backfill")]
+    return out
 
 
 def is_actuation_flagged(msg: Dict[str, Any]) -> bool:

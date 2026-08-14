@@ -88,6 +88,19 @@ def test_filter_ingress_drops_self_origin():
     assert [m["seq"] for m in client.filter_ingress(msgs, drop_self_origin=False)] == [1, 2]
 
 
+def test_filter_ingress_drops_backfill():
+    # backfill=True entries are pre-connect history: context only, NEVER a reply target. The shared
+    # contract must drop them so a stale @mention in history cannot trigger a reply on startup.
+    msgs = [
+        {"seq": 1, "backfill": True, "text": "old history, even an @mention"},
+        {"seq": 2, "backfill": False, "text": "a live message"},
+        {"seq": 3, "text": "no backfill key = live"},
+    ]
+    assert [m["seq"] for m in client.filter_ingress(msgs)] == [2, 3]
+    # opt-out keeps them (an agent that wants raw history can ask)
+    assert [m["seq"] for m in client.filter_ingress(msgs, drop_backfill=False)] == [1, 2, 3]
+
+
 def test_ingress_flag_helpers():
     assert client.is_actuation_flagged({"actuation_flagged": True})
     assert not client.is_actuation_flagged({"actuation_flagged": False})
