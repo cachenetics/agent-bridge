@@ -97,13 +97,13 @@ def test_context_channel_scope_no_labels():
 
 def test_context_server_scope_tags_channels():
     cfg = _cfg(context_scope="server", context_messages=10)
-    entries = [_entry(1, "alice", "hi", "general"),
-               _entry(2, "bob", "regs", "registers-and-fuses"),
-               _entry(3, "cache", "noted", "clankerchat-general", self_=True)]
+    entries = [_entry(1, "alice", "hi", "alpha"),
+               _entry(2, "bob", "stuff", "beta"),
+               _entry(3, "cache", "noted", "gamma", self_=True)]
     block = responder._context_block(cfg, entries, exclude_seq=None)
-    assert "[#general] alice: hi" in block
-    assert "[#registers-and-fuses] bob: regs" in block
-    assert "[#clankerchat-general] you: noted" in block   # own line labelled 'you'
+    assert "[#alpha] alice: hi" in block
+    assert "[#beta] bob: stuff" in block
+    assert "[#gamma] you: noted" in block                 # own line labelled 'you'
     assert "across the server" in block
 
 
