@@ -40,7 +40,7 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 BRIDGE_VERSION = "1.9.0"
 
 # Attachment ingestion (opt-in): only ever fetch human-readable TEXT/code files - never images,
-# firmware, archives or other binaries. Matched by content-type OR extension (some uploads, e.g.
+# archives or other binary files. Matched by content-type OR extension (some uploads, e.g.
 # .asm dumps, arrive with no content-type, so the extension list is the backstop).
 _TEXT_CTYPE_PREFIX = "text/"
 _TEXT_CTYPES = {

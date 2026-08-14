@@ -38,8 +38,8 @@ backfill_messages = 30    # on connect, seed each watched channel's last N Disco
                           #   These never trigger enforced lifecycle and are never replied to. 0 = off.
 ingest_attachments = false  # if true, download TEXT/code file attachments (.py .sh .md .txt .json .h
                           #   .asm .patch ...) and fold their contents into the message context, so the
-                          #   bot can discuss uploaded scripts/configs/notes. Images, firmware and other
-                          #   binaries are NEVER fetched. Off by default.
+                          #   bot can discuss uploaded scripts/configs/notes. Images, archives and other
+                          #   binary files are NEVER fetched. Off by default.
 attachment_max_chars = 20000        # per-file cap on how much of a text attachment is inlined
 attachment_download_max_bytes = 1000000  # skip downloading any attachment larger than this
 
