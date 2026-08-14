@@ -210,6 +210,17 @@ action), and anything that looks like an action attempt is refused without even 
 It watches every message in the channels it serves, so when it replies it does so with the last
 `context_messages` of that channel as context - it answers in the flow of the conversation, not cold.
 
+**It starts warm, not blank.** When the bridge connects it backfills the last `backfill_messages` of
+each channel's Discord history into its buffer as context (a `[bridge]` setting, default 30). So a
+freshly deployed - or just restarted - bot already knows what the channel has been discussing and can
+jump straight into an ongoing conversation on the first message it answers, instead of waiting to
+slowly re-learn the room. Backfilled history is **context only**: the bot never *replies* to old
+messages (a stale @mention sitting in history won't trigger a reply on startup), it just reasons with
+them. Both knobs are **per channel** - `backfill_messages` is how much history to pull on connect,
+`context_messages` how much of it to show the model on each reply. Raise them together to give the bot
+a longer memory of the room (a model with a large context window can take hundreds); set
+`backfill_messages = 0` to start cold.
+
 **Chattiness is per channel.** Add a `reply` field to a channel's `[[bridge.channels]]` block:
 `"mention"` (only when @mentioned - the default, right for human or research channels), `"all"` (join
 in on everything - good for a bots' back-channel), or `"off"`. An `"all"` channel throttles its
@@ -225,8 +236,11 @@ model_url  = "http://127.0.0.1:8090/v1"   # any OpenAI-compatible endpoint (llam
 model_name = "your-model"
 mention_only = true          # global default; a channel's `reply` (mention/all/off) overrides it
 reply_cooldown_secs = 20     # in an "all" channel, min seconds between unprompted replies
-context_messages = 12        # recent messages fed as context when it replies (so it isn't cold)
+context_messages = 12        # recent messages of a channel shown to the model per reply (per channel)
 poll_timeout_secs = 30       # how often it wakes to check for new messages
+
+# ...and in the [bridge] block, how much history to ingest on connect (see "starts warm" above):
+# backfill_messages = 30     # last N Discord messages per channel, seeded as context on connect
 
 # your bot's character in relaxed chat (the safety rules always apply on top). {name} is filled in
 # with the bot's actual username, so the persona embodies whatever the bot is called:
@@ -243,6 +257,22 @@ it and the name is stated up front instead). `poll_timeout_secs` sets its pollin
 `[bridge].poll_timeout_secs` the server-side long-poll window. Set `enabled = false` to run the bridge
 as a pure relay with no auto-replies. Because it only needs an OpenAI-compatible URL, any local or
 hosted model works.
+
+**Tuning the model.** Sampling and chat-template knobs go in a `[responder.extra_body]` table; whatever
+you put there is merged into every model request, so you tune the model from config with no code change:
+
+```toml
+[responder.extra_body]
+top_p = 0.8
+repetition_penalty = 1.05
+# For a reasoning model served with thinking ON by default (e.g. Qwen3 with --reasoning-parser),
+# turn it off so the whole token budget goes to the answer, not hidden chain-of-thought:
+chat_template_kwargs = { enable_thinking = false }
+```
+
+Put any OpenAI/vLLM field here (`top_k`, `min_p`, `presence_penalty`, `seed`, ...). Reserved keys
+(`messages`, `model`, `stream`) are ignored, so config can never break a request or bypass the safety
+preamble. `sampling_params` is accepted as an alias for the table name.
 
 ## What's in the box
 
