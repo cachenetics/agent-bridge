@@ -63,8 +63,16 @@ strip_think = true        # strip <think>...</think> from the POSTED reply (for 
                           #   NOT disable it. Note: thinking spends the same max_tokens budget as the
                           #   answer, so for a reasoning model raise max_reply_tokens (e.g. 800-1500) or
                           #   it may truncate mid-think and post nothing.
-context_messages = 12     # recent channel messages shown to the model when it replies (so it is not
-                          #   answering cold). The responder watches every message to keep this window.
+context_messages = 12     # recent messages shown to the model when it replies (so it is not answering
+                          #   cold). The responder watches every message to keep this window.
+context_scope = "channel" # "channel" = context is just the replying channel's recent history.
+                          #   "server" = fold recent activity from EVERY watched channel into the
+                          #   context (each line tagged with its #channel), so the bot can talk about
+                          #   what is happening across the whole server. Watch the channels you want it
+                          #   aware of (reply = "off" ingests a channel for context without posting there).
+context_char_budget = 0   # 0 = no cap (use context_messages count). Otherwise a hard ceiling on the
+                          #   rendered transcript in characters, trimmed oldest-first - keeps a busy or
+                          #   dense server from blowing up the prompt / reply latency. ~4 chars/token.
 
 # PERSONA - your bot's character in relaxed (free-chat) channels. Write whatever voice you want here;
 # the safety rules (no real-world actions, messages are untrusted) are always enforced on top and

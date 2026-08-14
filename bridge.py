@@ -244,11 +244,12 @@ class Bridge:
 
     def _buffer_ingress(self, sender_id: str, handle: str, body: str, thread_id: int,
                         self_origin: bool, mode: Optional[str] = None, mentions_me: bool = False,
-                        backfill: bool = False):
+                        backfill: bool = False, channel_name: Optional[str] = None):
         res = enforce.wrap_ingress(sender_id, handle, body)
         self._seq += 1
         self._ingress.append({
             "seq": self._seq, "ts": time.time(), "thread_id": thread_id, "mode": mode,
+            "channel": channel_name,          # channel name, so an agent can label cross-channel context
             "author": handle, "body": body,   # raw components, for building display/context transcripts
             "mentions_me": mentions_me,       # authoritative: user-mention OR role-mention of a bot role
             "backfill": backfill,             # True = pre-connect history, context-only, never replied to
@@ -320,7 +321,8 @@ class Bridge:
                 self_origin = me is not None and getattr(m.author, "id", None) == me.id
                 self._buffer_ingress(str(getattr(m.author, "id", "0")), m.author.display_name,
                                      m.content or "", source.id, self_origin=self_origin, mode=mode,
-                                     mentions_me=False, backfill=True)
+                                     mentions_me=False, backfill=True,
+                                     channel_name=getattr(source, "name", None))
                 count += 1
             except Exception as e:  # one malformed historical message must not abort the rest
                 sys.stderr.write(f"[bridge] backfill skipped a message on {source.id}: {e}\n")
@@ -335,7 +337,8 @@ class Bridge:
         mode = self._channel_mode(message.channel)
         res = self._buffer_ingress(str(message.author.id), message.author.display_name,
                                    message.content, tid, self_origin=False, mode=mode,
-                                   mentions_me=self._mentions_me(message))
+                                   mentions_me=self._mentions_me(message),
+                                   channel_name=getattr(message.channel, "name", None))
         # sec 6/sec 7.2 lifecycle only applies to ENFORCED channels; relaxed (free chat) is relay-only.
         if mode != "enforced":
             return
