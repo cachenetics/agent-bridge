@@ -32,6 +32,10 @@ ingress_buffer = 500      # ring-buffer depth of wrapped inbound messages
 poll_timeout_secs = 25    # /ingress long-poll window: how long a poll waits before returning empty
 max_chunks = 4            # a relaxed reply over Discord's 2000-char cap is split into up to this many
                           #   messages; beyond that it rides as one file attachment (no channel flood)
+backfill_messages = 30    # on connect, seed each watched channel's last N Discord messages into the
+                          #   ingress buffer as CONTEXT-ONLY history, so a freshly-deployed responder
+                          #   starts warm and can jump into the ongoing conversation instead of cold.
+                          #   These never trigger enforced lifecycle and are never replied to. 0 = off.
 
 
 # ===================================================================================================
@@ -87,6 +91,21 @@ you lack opinions or feelings. Keep it easy, brief, and constructive. No emoji, 
 # System prompt used in ENFORCED channels (the HOUSE_RULES agent contract). Relative paths resolve
 # against the install prefix, where deploy.sh installs these.
 enforced_prompt_files = ["AGENTS.md", "POSTING-SCHEMA.md"]
+
+# MODEL-TUNING LEVER. Any key here is merged verbatim into every /chat/completions request, so you can
+# fine-tune your model from config with no code change. Put OpenAI/vLLM sampling fields here: top_p,
+# top_k, min_p, repetition_penalty, presence_penalty, frequency_penalty, stop, seed, ... Merged LAST,
+# so a key set here also overrides temperature/max_tokens above. `sampling_params` is an accepted alias.
+# The nested chat_template_kwargs talks to the chat template itself - most importantly, for a reasoning
+# model served with thinking ON by default (e.g. Qwen3 with --reasoning-parser), set
+# enable_thinking = false so the whole token budget goes to the answer instead of hidden CoT.
+# (This sub-table MUST stay after every plain [responder] key above - it is a TOML sub-table.)
+[responder.extra_body]
+# top_p = 0.8
+# top_k = 20
+# min_p = 0.0
+# repetition_penalty = 1.05
+# chat_template_kwargs = { enable_thinking = false }
 
 # ---------------------------------------------------------------------------------------------------
 # MULTI-CHANNEL (optional). To watch more than one channel, uncomment the blocks below and PUT YOUR

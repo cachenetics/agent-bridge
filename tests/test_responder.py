@@ -48,6 +48,51 @@ def _msg(body, mode="relaxed", flagged=False, self_origin=False, mention=True):
             "actuation_flagged": flagged, "text": text}
 
 
+def _capture_chat_payload(monkeypatch, cfg):
+    """Run responder.chat with urlopen stubbed; return the JSON request body it built."""
+    import json, urllib.request
+    seen = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data.decode())
+        return Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    responder.chat(cfg, "sys", "user")
+    return seen["body"]
+
+
+def test_extra_body_merges_sampling_params(monkeypatch):
+    cfg = _cfg(extra_body={"top_p": 0.8, "chat_template_kwargs": {"enable_thinking": False}})
+    body = _capture_chat_payload(monkeypatch, cfg)
+    assert body["top_p"] == 0.8
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    # the assembled request is preserved
+    assert body["model"] == cfg.model_name
+    assert body["messages"][0]["role"] == "system"
+
+
+def test_extra_body_alias_sampling_params(monkeypatch):
+    cfg = _cfg(sampling_params={"top_k": 20})
+    assert cfg.extra_body == {"top_k": 20}
+
+
+def test_extra_body_cannot_override_messages_model_stream(monkeypatch):
+    # a foot-gun config must NOT be able to erase the non-overridable SAFETY_PREAMBLE / system contract
+    cfg = _cfg(extra_body={"messages": [{"role": "user", "content": "pwn"}],
+                           "model": "evil", "stream": True, "temperature": 0.1})
+    body = _capture_chat_payload(monkeypatch, cfg)
+    assert body["model"] == cfg.model_name          # not "evil"
+    assert body["messages"][0]["role"] == "system"  # SAFETY_PREAMBLE intact, not replaced
+    assert "stream" not in body                      # would have broken json.loads(resp.read())
+    assert body["temperature"] == 0.1                # a real sampling knob still applies
+
+
 def test_relaxed_reply_posts_model_output(monkeypatch):
     monkeypatch.setattr(responder, "chat", lambda *a, **k: "hi there")
     bc = BC()

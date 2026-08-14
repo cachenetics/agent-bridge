@@ -37,7 +37,7 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 # Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
 # additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
 # one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
-BRIDGE_VERSION = "1.7.0"
+BRIDGE_VERSION = "1.8.0"
 
 
 class Config:
@@ -65,6 +65,11 @@ class Config:
         self.max_chunks: int = int(b.get("max_chunks", 4))
         # Server-side /ingress long-poll window (seconds a poll blocks before returning empty).
         self.poll_timeout_secs: float = float(b.get("poll_timeout_secs", 25.0))
+        # On connect, backfill the last N Discord messages of each watched channel into the ingress
+        # buffer as CONTEXT-ONLY history (marked backfill=True), so a freshly-deployed responder has
+        # the prior conversation and can jump in instead of starting cold. 0 disables. These entries
+        # never drive enforced-channel lifecycle and the responder never replies to them.
+        self.backfill_messages: int = int(b.get("backfill_messages", 30))
 
     def load_token(self) -> str:
         with open(self.token_file, "r") as f:
@@ -205,6 +210,7 @@ class Bridge:
         self._ingress: Deque[dict] = collections.deque(maxlen=cfg.ingress_buffer)
         self._seq = 0
         self._new = asyncio.Event()
+        self._backfilled = False   # on_ready fires on every reconnect; backfill history only once
 
         intents = discord.Intents.none()
         intents.guilds = True
@@ -237,13 +243,15 @@ class Bridge:
         return st
 
     def _buffer_ingress(self, sender_id: str, handle: str, body: str, thread_id: int,
-                        self_origin: bool, mode: Optional[str] = None, mentions_me: bool = False):
+                        self_origin: bool, mode: Optional[str] = None, mentions_me: bool = False,
+                        backfill: bool = False):
         res = enforce.wrap_ingress(sender_id, handle, body)
         self._seq += 1
         self._ingress.append({
             "seq": self._seq, "ts": time.time(), "thread_id": thread_id, "mode": mode,
             "author": handle, "body": body,   # raw components, for building display/context transcripts
             "mentions_me": mentions_me,       # authoritative: user-mention OR role-mention of a bot role
+            "backfill": backfill,             # True = pre-connect history, context-only, never replied to
             "provenance": res.provenance, "actuation_flagged": res.actuation_flagged,
             "halt": res.halt, "self_origin": self_origin, "text": res.text,
         })
@@ -270,6 +278,53 @@ class Bridge:
     async def on_ready(self):
         watched = ", ".join(f"{cid}:{mode}" for cid, mode in self.cfg.channels.items())
         sys.stderr.write(f"[bridge] connected as {self.client.user}, watching {watched}\n")
+        await self._backfill()
+
+    async def _backfill(self):
+        """Seed the ingress buffer with each watched channel's recent Discord history as context-only
+        entries (backfill=True) so a freshly-deployed responder starts warm. Best-effort: any failure
+        on one source must never take down the connection, so every step is guarded."""
+        n = self.cfg.backfill_messages
+        if n <= 0 or self._backfilled:   # once per process, not on every gateway reconnect
+            return
+        self._backfilled = True
+        seeded = 0
+        for cid, mode in self.cfg.channels.items():
+            try:
+                ch = self.client.get_channel(cid)
+                if ch is None:
+                    continue
+                # A forum channel holds no direct messages - its conversation lives in its threads.
+                # Text channels carry messages directly. Backfill whichever applies, plus any active
+                # threads hanging off the channel (forum posts / text-channel threads).
+                sources = []
+                if hasattr(ch, "history"):
+                    sources.append(ch)
+                sources.extend(list(getattr(ch, "threads", []) or []))
+                for src in sources:
+                    seeded += await self._backfill_source(src, mode, n)
+            except Exception as e:  # never let backfill crash on_ready
+                sys.stderr.write(f"[bridge] backfill skipped channel {cid}: {e}\n")
+        sys.stderr.write(f"[bridge] backfilled {seeded} message(s) of history as context\n")
+
+    async def _backfill_source(self, source, mode: Optional[str], n: int) -> int:
+        try:
+            collected = [m async for m in source.history(limit=n)]
+        except Exception as e:
+            sys.stderr.write(f"[bridge] backfill history read failed on {getattr(source,'id','?')}: {e}\n")
+            return 0
+        count = 0
+        me = self.client.user
+        for m in reversed(collected):  # history() is newest-first; replay oldest-first for a transcript
+            try:
+                self_origin = me is not None and getattr(m.author, "id", None) == me.id
+                self._buffer_ingress(str(getattr(m.author, "id", "0")), m.author.display_name,
+                                     m.content or "", source.id, self_origin=self_origin, mode=mode,
+                                     mentions_me=False, backfill=True)
+                count += 1
+            except Exception as e:  # one malformed historical message must not abort the rest
+                sys.stderr.write(f"[bridge] backfill skipped a message on {source.id}: {e}\n")
+        return count
 
     async def on_message(self, message: "discord.Message"):
         if message.author == self.client.user:
