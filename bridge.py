@@ -37,7 +37,32 @@ CONFIG_PATH = os.environ.get("AGENT_BRIDGE_CONFIG", "/etc/agent-bridge/config.to
 # Surfaced in GET /health so a fleet can spot version skew across the channel. Bump the MINOR on any
 # additive wire-contract change (a new /egress field, a new response key), the MAJOR on a breaking
 # one (a removed/renamed field or status code). Patch for internal fixes with no contract change.
-BRIDGE_VERSION = "1.8.0"
+BRIDGE_VERSION = "1.9.0"
+
+# Attachment ingestion (opt-in): only ever fetch human-readable TEXT/code files - never images,
+# archives or other binary files. Matched by content-type OR extension (some uploads, e.g.
+# .asm dumps, arrive with no content-type, so the extension list is the backstop).
+_TEXT_CTYPE_PREFIX = "text/"
+_TEXT_CTYPES = {
+    "application/json", "application/xml", "application/javascript", "application/toml",
+    "application/x-python", "application/x-sh", "application/x-shellscript", "application/x-diff",
+    "application/x-chdr", "application/x-yaml", "application/sql",
+}
+_TEXT_EXTS = {
+    "txt", "md", "markdown", "rst", "log", "csv", "tsv", "json", "jsonl", "xml", "yaml", "yml",
+    "toml", "ini", "cfg", "conf", "env", "py", "sh", "bash", "zsh", "rb", "pl", "pm", "lua", "js",
+    "ts", "jsx", "tsx", "go", "rs", "c", "cc", "cpp", "cxx", "h", "hh", "hpp", "cs", "java", "kt",
+    "swift", "m", "r", "jl", "sql", "html", "css", "asm", "s", "inc", "v", "vh", "sv", "vhd",
+    "patch", "diff", "make", "mk", "cmake", "ld", "tcl", "ps1", "bat", "dockerfile", "gitignore",
+}
+
+
+def _is_text_attachment(filename: str, content_type: Optional[str]) -> bool:
+    ct = (content_type or "").split(";")[0].strip().lower()
+    if ct.startswith(_TEXT_CTYPE_PREFIX) or ct in _TEXT_CTYPES:
+        return True
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return ext in _TEXT_EXTS
 
 
 class Config:
@@ -70,6 +95,12 @@ class Config:
         # the prior conversation and can jump in instead of starting cold. 0 disables. These entries
         # never drive enforced-channel lifecycle and the responder never replies to them.
         self.backfill_messages: int = int(b.get("backfill_messages", 30))
+        # Attachment ingestion: download TEXT/code file attachments and fold their contents into the
+        # message context so the bot can discuss scripts/configs/notes people upload. Binaries and
+        # images are never fetched. Off by default; opt in per deployment.
+        self.ingest_attachments: bool = bool(b.get("ingest_attachments", False))
+        self.attachment_max_chars: int = int(b.get("attachment_max_chars", 20000))      # per-file cap in context
+        self.attachment_download_max_bytes: int = int(b.get("attachment_download_max_bytes", 1_000_000))  # skip bigger
 
     def load_token(self) -> str:
         with open(self.token_file, "r") as f:
@@ -242,15 +273,42 @@ class Bridge:
             self.threads[tid] = st
         return st
 
+    async def _attachment_text(self, message) -> Optional[str]:
+        """Download this message's TEXT/code attachments and return their contents for context. Never
+        touches images/binaries. Per-file size-capped; best-effort - any failure just skips that file
+        and never breaks ingestion."""
+        if not self.cfg.ingest_attachments:
+            return None
+        parts = []
+        for a in getattr(message, "attachments", []) or []:
+            try:
+                fn = getattr(a, "filename", "") or ""
+                if not _is_text_attachment(fn, getattr(a, "content_type", None)):
+                    continue
+                if getattr(a, "size", 0) and a.size > self.cfg.attachment_download_max_bytes:
+                    parts.append(f"[attached file: {fn} ({a.size} bytes) - too large to inline]")
+                    continue
+                raw = await a.read()   # discord.py downloads the bytes
+                text = raw.decode("utf-8", "replace")
+                cap = self.cfg.attachment_max_chars
+                if len(text) > cap:
+                    text = text[:cap] + f"\n...[truncated, {len(text)} chars total]"
+                parts.append(f"[attached file: {fn}]\n{text}")
+            except Exception as e:   # a bad/unreachable attachment must never break ingest
+                sys.stderr.write(f"[bridge] attachment fetch skipped ({getattr(a,'filename','?')}): {e}\n")
+        return "\n\n".join(parts) if parts else None
+
     def _buffer_ingress(self, sender_id: str, handle: str, body: str, thread_id: int,
                         self_origin: bool, mode: Optional[str] = None, mentions_me: bool = False,
-                        backfill: bool = False, channel_name: Optional[str] = None):
+                        backfill: bool = False, channel_name: Optional[str] = None,
+                        attachment_text: Optional[str] = None):
         res = enforce.wrap_ingress(sender_id, handle, body)
         self._seq += 1
         self._ingress.append({
             "seq": self._seq, "ts": time.time(), "thread_id": thread_id, "mode": mode,
             "channel": channel_name,          # channel name, so an agent can label cross-channel context
             "author": handle, "body": body,   # raw components, for building display/context transcripts
+            "attachments_text": attachment_text,   # inlined text of any TEXT/code file attachments
             "mentions_me": mentions_me,       # authoritative: user-mention OR role-mention of a bot role
             "backfill": backfill,             # True = pre-connect history, context-only, never replied to
             "provenance": res.provenance, "actuation_flagged": res.actuation_flagged,
@@ -319,10 +377,12 @@ class Bridge:
         for m in reversed(collected):  # history() is newest-first; replay oldest-first for a transcript
             try:
                 self_origin = me is not None and getattr(m.author, "id", None) == me.id
+                att = await self._attachment_text(m)
                 self._buffer_ingress(str(getattr(m.author, "id", "0")), m.author.display_name,
                                      m.content or "", source.id, self_origin=self_origin, mode=mode,
                                      mentions_me=False, backfill=True,
-                                     channel_name=getattr(source, "name", None))
+                                     channel_name=getattr(source, "name", None),
+                                     attachment_text=att)
                 count += 1
             except Exception as e:  # one malformed historical message must not abort the rest
                 sys.stderr.write(f"[bridge] backfill skipped a message on {source.id}: {e}\n")
@@ -335,10 +395,12 @@ class Bridge:
             return
         tid = message.channel.id
         mode = self._channel_mode(message.channel)
+        att = await self._attachment_text(message)
         res = self._buffer_ingress(str(message.author.id), message.author.display_name,
                                    message.content, tid, self_origin=False, mode=mode,
                                    mentions_me=self._mentions_me(message),
-                                   channel_name=getattr(message.channel, "name", None))
+                                   channel_name=getattr(message.channel, "name", None),
+                                   attachment_text=att)
         # sec 6/sec 7.2 lifecycle only applies to ENFORCED channels; relaxed (free chat) is relay-only.
         if mode != "enforced":
             return

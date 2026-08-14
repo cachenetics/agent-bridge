@@ -107,6 +107,26 @@ def _finding(**kw):
 
 
 # --- gating -----------------------------------------------------------------------------------
+def test_is_text_attachment_accepts_text_and_code():
+    # text/code by content-type
+    assert bridge._is_text_attachment("notes.txt", "text/plain; charset=utf-8")
+    assert bridge._is_text_attachment("x.py", "text/x-python")
+    assert bridge._is_text_attachment("d.patch", "text/x-diff")
+    # by extension when content-type is missing (e.g. .asm dumps arrive with None)
+    assert bridge._is_text_attachment("dump.asm", None)
+    assert bridge._is_text_attachment("REF.md", None)
+    assert bridge._is_text_attachment("run.sh", None)
+
+
+def test_is_text_attachment_rejects_binaries_and_images():
+    assert not bridge._is_text_attachment("blob.bin", "application/octet-stream")
+    assert not bridge._is_text_attachment("card.rom", None)           # binary, ext not allowlisted
+    assert not bridge._is_text_attachment("shot.png", "image/webp")
+    assert not bridge._is_text_attachment("pic.jpg", "image/jpeg")
+    assert not bridge._is_text_attachment("spec.pdf", "application/pdf")
+    assert not bridge._is_text_attachment("bundle.zip", "application/zip")
+
+
 def test_closed_thread_gates_egress():
     b, _ = _bridge()
     b._thread_state(123).closed = True
