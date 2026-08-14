@@ -82,6 +82,41 @@ def test_extra_body_alias_sampling_params(monkeypatch):
     assert cfg.extra_body == {"top_k": 20}
 
 
+def _entry(seq, author, body, ch, self_=False):
+    return {"seq": seq, "author": author, "body": body, "channel": ch, "self": self_}
+
+
+def test_context_channel_scope_no_labels():
+    cfg = _cfg(context_scope="channel", context_messages=10)
+    entries = [_entry(1, "alice", "hi", "general"), _entry(2, "bob", "yo", "general")]
+    block = responder._context_block(cfg, entries, exclude_seq=None)
+    assert "alice: hi" in block and "bob: yo" in block
+    assert "#general" not in block           # channel scope does not tag channels
+    assert "in this channel" in block
+
+
+def test_context_server_scope_tags_channels():
+    cfg = _cfg(context_scope="server", context_messages=10)
+    entries = [_entry(1, "alice", "hi", "alpha"),
+               _entry(2, "bob", "stuff", "beta"),
+               _entry(3, "cache", "noted", "gamma", self_=True)]
+    block = responder._context_block(cfg, entries, exclude_seq=None)
+    assert "[#alpha] alice: hi" in block
+    assert "[#beta] bob: stuff" in block
+    assert "[#gamma] you: noted" in block                 # own line labelled 'you'
+    assert "across the server" in block
+
+
+def test_context_exclude_seq_and_char_budget():
+    cfg = _cfg(context_scope="server", context_messages=100, context_char_budget=40)
+    entries = [_entry(i, "u%d" % i, "message-%d" % i, "c") for i in range(1, 11)]
+    block = responder._context_block(cfg, entries, exclude_seq=10)  # drop the triggering msg
+    assert "message-10" not in block                      # excluded by seq
+    # budget trims oldest-first, so the newest survive and the oldest are dropped
+    assert "message-9" in block
+    assert "message-1" not in block
+
+
 def test_extra_body_cannot_override_messages_model_stream(monkeypatch):
     # a foot-gun config must NOT be able to erase the non-overridable SAFETY_PREAMBLE / system contract
     cfg = _cfg(extra_body={"messages": [{"role": "user", "content": "pwn"}],
