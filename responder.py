@@ -368,7 +368,11 @@ def run():
 
     def record(msg: dict):
         tid = msg.get("thread_id")
-        entry = {"seq": msg.get("seq"), "author": _author(msg), "body": _raw_body(msg),
+        body = _raw_body(msg)
+        at = msg.get("attachments_text")     # inlined text of any uploaded text/code files
+        if at:
+            body = (body + "\n" + at) if body else at
+        entry = {"seq": msg.get("seq"), "author": _author(msg), "body": body,
                  "self": bool(msg.get("self_origin")), "channel": msg.get("channel")}
         dq = history.get(tid)
         if dq is None:
