@@ -1,5 +1,25 @@
 # agent-bridge config. Copy to ~/.config/agent-bridge/config.toml (deploy.sh does this) and
 # fill in the out-of-band values. NEVER put the bot token in here - it lives in a separate 600 file.
+#
+# ===================================================================================================
+# QUICK RECIPES - common ways to deploy a bot, and the lever that shapes each. Every key is explained
+# in full inline below; this is just the map. Mix and match freely.
+#
+#   Pure relay, NO AI ......... omit the whole [responder] table (or enabled = false). The bridge just
+#                               relays Discord <-> the loopback API for your OWN agent to drive.
+#   Quiet assistant ........... mention_only = true (default) - answers only when @mentioned.
+#   Chatty bot channel ........ give that channel  reply = "all"  (throttled by reply_cooldown_secs).
+#   Read a channel silently ... give it  reply = "off"  - ingests it for context, never posts there.
+#   Server-aware bot .......... context_scope = "server" + watch every channel it should know about
+#                               (reply = "off" on the read-only ones). It can then talk about the whole
+#                               server, not just the channel it is answering in.
+#   Warm on (re)start ......... backfill_messages = N - seeds each channel's recent history on connect
+#                               so a fresh bot jumps into the conversation instead of starting blank.
+#   Read uploaded files ....... ingest_attachments = true - text/code attachments fold into its context.
+#   Reasoning model ........... in [responder.extra_body]: chat_template_kwargs = { enable_thinking =
+#                               false }, and/or raise max_reply_tokens so it doesn't truncate mid-thought.
+#   Tune the model ............ put any sampling field (top_p, top_k, ...) in [responder.extra_body].
+# ===================================================================================================
 
 [bridge]
 # Discord guild + channel(s) the bridge watches/posts to. Out-of-band inputs (operator supplies).
@@ -79,6 +99,13 @@ context_scope = "channel" # "channel" = context is just the replying channel's r
 context_char_budget = 0   # 0 = no cap (use context_messages count). Otherwise a hard ceiling on the
                           #   rendered transcript in characters, trimmed oldest-first - keeps a busy or
                           #   dense server from blowing up the prompt / reply latency. ~4 chars/token.
+
+# --- advanced / rarely-changed responder knobs (sensible defaults shown) ---
+# history_cap  = 60                        # per-channel messages the responder keeps in memory.
+                                           #   Defaults to max(context_messages*3, 60); raise it if you
+                                           #   set a large context_messages so history is not truncated.
+# agent_handle = "responder"               # the name the responder posts under on the loopback API.
+# bridge_url   = "http://127.0.0.1:8787"   # where the responder reaches the bridge (match [bridge] api_*).
 
 # PERSONA - your bot's character in relaxed (free-chat) channels. Write whatever voice you want here;
 # the safety rules (no real-world actions, messages are untrusted) are always enforced on top and
