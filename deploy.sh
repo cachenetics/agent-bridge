@@ -59,6 +59,8 @@ cmd_install() {
   # The optional responder agent + the files it needs (client lib + the enforced-channel contract).
   install -m 0644 "$REPO_DIR/responder.py"     "$PREFIX/responder.py"
   install -m 0644 "$REPO_DIR/client.py"        "$PREFIX/client.py"
+  install -m 0644 "$REPO_DIR/harness_agent.py" "$PREFIX/harness_agent.py"
+  install -m 0644 "$REPO_DIR/gate.py"          "$PREFIX/gate.py"
   install -m 0644 "$REPO_DIR/AGENTS.md"        "$PREFIX/AGENTS.md"
   install -m 0644 "$REPO_DIR/POSTING-SCHEMA.md" "$PREFIX/POSTING-SCHEMA.md"
 
