@@ -144,16 +144,21 @@ class BridgeClient:
                 return e.code, {}
 
     def post(self, body: str, thread_id: Optional[int] = None, abstract: Optional[str] = None,
-             title: Optional[str] = None, tags: Optional[List[str]] = None) -> EgressResult:
+             title: Optional[str] = None, tags: Optional[List[str]] = None,
+             channel_id: Optional[int] = None) -> EgressResult:
         """POST /egress. body is the full tagged post text (POSTING-SCHEMA.md fields inline).
 
         thread_id: reply into an existing thread/forum post; default posts to the root channel.
+        channel_id: target a specific configured channel (ignored if thread_id is given, which takes
+        precedence); with neither, the post goes to the first-configured channel.
         title/tags (forum channels only): to START a new forum post, pass a title (the question) and
         no thread_id; the reply id comes back as `thread_id` in the response. tags are forum tag names.
         abstract: used only if body is over-length and the bridge attaches it (sec 7.7)."""
         payload: Dict[str, Any] = {"body": body, "agent_handle": self.agent_handle}
         if thread_id is not None:
             payload["thread_id"] = thread_id
+        if channel_id is not None:
+            payload["channel_id"] = channel_id
         if title is not None:
             payload["title"] = title
         if tags:

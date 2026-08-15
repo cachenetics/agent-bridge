@@ -274,6 +274,90 @@ Put any OpenAI/vLLM field here (`top_k`, `min_p`, `presence_penalty`, `seed`, ..
 (`messages`, `model`, `stream`) are ignored, so config can never break a request or bypass the safety
 preamble. `sampling_params` is accepted as an alias for the table name.
 
+## Connecting a harness
+
+The responder gives one model one turn per message. When you want more - an agent that *investigates*
+a question over a body of reference material, iterates, and only speaks when it has something that
+holds up - point the bridge at a **harness**: a full agentic CLI (OMP, Claude Code, opencode, ...).
+`harness_agent.py` is the ready-made driver, and it adds the piece a chatbot doesn't have: a **gate**
+that verifies the harness's output before it can reach a channel.
+
+Each round looks like this:
+
+```
+    task --> [ harness: reason over your corpus ] --> analysis
+                                                         |
+                              +--------------------------+
+                              v
+                  [ deterministic gate ]   arithmetic + grounding, checked in Python
+                              |  FAIL: the exact defects are fed back; the harness revises
+                              v  PASS
+                  [ LLM adversarial judge ]   a second model, told to REFUTE (optional)
+                              |  FAIL: defects fed back; revise
+                              v  PASS
+                  [ promote to the channel, through the bridge ]
+```
+
+Two properties make this more than "ask a model twice":
+
+- **The gate is deterministic where it can be.** Two language models share blind spots and both
+  fumble arithmetic - a model will assert "X differs from Y only at bit 19" when `X ^ Y = 0x10000 =
+  bit 16`, and a reviewing model waves it through. `gate.py` checks the *checkable* parts in Python:
+  numeric and bit/arithmetic consistency, and whether cited values are actually grounded in your
+  corpus. A confidently worded wrong number cannot pass, no matter how fluent the prose. The LLM
+  adversarial judge then handles only what arithmetic cannot - soundness, relevance, novelty.
+- **Termination is truth-grounded.** The loop stops because the deterministic checks pass, not
+  because a model declared itself finished. The deterministic gate verifies the *checkable* claims
+  (arithmetic, grounding); the adversarial judge reviews the rest; and an empty, unfenced, or
+  unverified answer is not promoted at all. Where the checks reach, they reach mechanically - a wrong
+  number cannot ride through on fluent prose.
+
+The **channel air-gap is unchanged**. The harness sees only the prompt on stdin and returns text on
+stdout - it never holds the Discord token and has no channel handle; `harness_agent.py`, like every
+other agent, reaches the channel only through the bridge's loopback `/egress`, so nothing the harness
+emits can touch the channel except as a gated post. Its *own* lockdown - no acting tools, no network -
+is up to the `command` you configure (the `--no-tools ...` below): the bridge only pipes text through
+that command and cannot sandbox it, so you lock the harness down, the same way you would any tool.
+
+**Setup (OMP as the example harness).** OMP is an agentic coding CLI that speaks to any
+OpenAI-compatible model, so it runs your local model and reads your reference corpus on demand. In
+`~/.config/agent-bridge/config.toml`, fill in the `[harness]` block:
+
+```toml
+[harness]
+# A shell command that reads the prompt on STDIN and prints the analysis on STDOUT. Run the harness
+# LOCKED DOWN and let it attach the corpus. For OMP: disable every acting tool, point --model at your
+# local endpoint, and give it the corpus with --add-dir so it reads only what it needs.
+command = "omp -p --no-tools --no-lsp --no-extensions --no-skills --no-rules --thinking high --model my-local-model --add-dir /srv/corpus \"$(cat)\""
+corpus_path = "/srv/corpus"     # a file or dir; read locally so the gate can ground claims against it
+max_rounds = 3                  # reason -> gate -> revise, up to this many times
+judge = true                    # run the adversarial judge after the deterministic gate passes
+promote_channel = 111111111111111111   # a survivor is posted here when you run with --promote
+# wip_channel  = 222222222222222222     # optional: post each round's gate rejections here
+```
+
+The `command` is the whole integration surface - the bridge does not need to know OMP's flags, only
+that the command reads a prompt on stdin and prints an analysis. Swap OMP for any harness that can do
+the same (`claude -p`, an `opencode run`, a shell wrapper) and nothing else changes. `--add-dir`
+keeps the corpus out of the prompt so the model's full context window is free to reason; the same
+corpus is read locally by the gate to check grounding.
+
+Then run an investigation (the bridge must be up):
+
+```sh
+VENV=~/.local/share/agent-bridge/venv
+"$VENV/bin/python" harness_agent.py --task "your question here" --promote
+```
+
+It prints each round's gate result to stderr and, on success, the channel-ready block to stdout; with
+`--promote` a survivor is posted to `promote_channel` through the bridge. Drop `--promote` to dry-run
+the loop and read the block yourself first. If `promote_channel` is an **enforced** channel, the
+block must satisfy `POSTING-SCHEMA.md` (start with a tag such as `[FINDING]`) or the bridge rejects it
+and the run reports that rejection rather than a false success - so either have the harness emit a
+tagged block, or promote to a **relaxed** channel, which takes the block as-is. The deterministic gate
+also runs standalone - `python3 gate.py <analysis-file> <corpus-file>` prints every FAIL and WARN - so
+you can wire it into any other agent, not just this one.
+
 ## What's in the box
 
 | File | What it is |
@@ -285,6 +369,8 @@ preamble. `sampling_params` is accepted as an alias for the table name.
 | `uninstall.sh` | Tears the deployment back down (keeps your config/token unless `--purge`). |
 | `AGENTS.md` | The rulebook rewritten as instructions for your AI agent. |
 | `responder.py` | Optional ready-made agent that auto-replies via a local model (see above). |
+| `harness_agent.py` | Optional agent that drives a full harness (OMP, ...) through a gated investigation loop (see "Connecting a harness"). |
+| `gate.py` | The deterministic verification gate - arithmetic and corpus-grounding checks, usable standalone. |
 | `client.py` + `docs/CLIENT.md` | A ready-made client and its guide. |
 | `POSTING-SCHEMA.md` | The exact format a post must follow. |
 | `config.example.toml` | The config template `deploy.sh install` copies into place. |
