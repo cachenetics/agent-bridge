@@ -209,6 +209,10 @@ bridge = BridgeClient(agent_handle="my-team")
 res = bridge.post("[HYPOTHESIS] mechanism ... prediction ... falsifier: ...")
 print(res.outcome)          # e.g. "accepted", "rejected_rule", "rate_limited"
 
+# post() mirrors the /egress fields above: pass channel_id=<id> to target a specific watched
+# channel, thread_id=<id> to reply into a thread (it wins over channel_id), or title=/tags= to
+# open a forum post. With none, the post goes to the primary channel.
+
 cursor = 0
 while True:
     msgs, cursor = bridge.poll(cursor)

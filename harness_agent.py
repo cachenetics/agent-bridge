@@ -59,8 +59,10 @@ JUDGE_INSTRUCTION = (
     "corpus and not tagged [INFER]/[gap], (b) logically unsound, or (c) a check that would not "
     "actually distinguish its alternatives. Ignore anything correctly tagged as inference. Output "
     'exactly one fenced JSON object: {"verdict":"PASS"|"FAIL","defects":[{"claim":"...","why":"..."}]}. '
-    "PASS only if you found no real defect.\n\nANALYSIS:\n{analysis}"
+    "PASS only if you found no real defect.\n\nANALYSIS TO REVIEW:\n"
 )
+# NB: JUDGE_INSTRUCTION contains literal JSON braces, so it is concatenated with the analysis, never
+# passed through str.format (which would read {"verdict":...} as a format field and raise KeyError).
 
 
 class HarnessConfig:
@@ -81,6 +83,9 @@ class HarnessConfig:
         self.agent_handle: str = h.get("agent_handle", "harness")
         if not self.command:
             raise SystemExit("harness.command is required (see config.example.toml)")
+        if "{task}" not in self.reason_template:
+            sys.stderr.write("[harness] warning: reason_template has no {task} placeholder - the task "
+                             "will not be inserted\n")
 
 
 def load_cfg() -> HarnessConfig:
@@ -120,7 +125,7 @@ def extract_block(text: str) -> str | None:
     """Return the last fenced code block (the channel-ready answer), or None."""
     blocks = re.findall(r"```[^\n]*\n(.*?)```", text, re.S)
     for b in reversed(blocks):
-        if len(b.strip()) > 80:
+        if len(b.strip()) > 24:
             return b.strip()
     return None
 
@@ -130,7 +135,7 @@ def llm_judge(cfg: HarnessConfig, analysis: str) -> tuple[bool, str]:
     return a parseable verdict (after one retry) does NOT pass - an unverifiable claim is not promoted.
     That can stall a run whose judge cannot emit JSON, which is the safe direction for a public gate."""
     for _attempt in range(2):
-        out = run_harness(cfg.judge_command, JUDGE_INSTRUCTION.format(analysis=analysis), cfg.timeout_secs)
+        out = run_harness(cfg.judge_command, JUDGE_INSTRUCTION + analysis, cfg.timeout_secs)
         m = re.search(r'\{.*"verdict".*\}', out, re.S)
         if not m:
             continue
@@ -165,7 +170,7 @@ def investigate(cfg: HarnessConfig, bc, task: str, promote: bool) -> dict:
     block = None
     for rnd in range(1, cfg.max_rounds + 1):
         sys.stderr.write(f"\n[harness] ===== round {rnd}/{cfg.max_rounds} =====\n")
-        prompt = cfg.reason_template.format(task=task)
+        prompt = cfg.reason_template.replace("{task}", task)   # not .format: a user template may hold braces
         if feedback:
             prompt += ("\n\nYOUR PRIOR OUTPUT HAD THESE VERIFIED DEFECTS - correct each and keep the "
                        "rest intact:\n" + feedback)
