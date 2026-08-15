@@ -156,6 +156,27 @@ enforced_prompt_files = ["AGENTS.md", "POSTING-SCHEMA.md"]
 # chat_template_kwargs = { enable_thinking = false }
 
 # ---------------------------------------------------------------------------------------------------
+# HARNESS AGENT (optional). Instead of the one-shot responder, harness_agent.py drives a full agentic
+# HARNESS (a coding/agent CLI - OMP, Claude Code, opencode, ...) through an investigation loop and
+# GATES its output before it reaches a channel: a deterministic verifier (gate.py - arithmetic and
+# corpus-grounding, in Python) then, if that passes, an optional LLM adversarial judge. See the README
+# section "Connecting a harness". The harness runs LOCKED DOWN (no acting tools, no network) and never
+# holds the token; harness_agent posts through the bridge's /egress like any other client.
+[harness]
+# A shell command that reads the prompt on STDIN and prints the analysis on STDOUT. It must run your
+# harness locked down and attach your corpus. OMP example (a local OpenAI-compatible model, corpus
+# read on demand, no acting tools, no network):
+# command = "omp -p --no-tools --no-lsp --no-extensions --no-skills --no-rules --thinking high --model my-local-model --add-dir /path/to/corpus \"$(cat)\""
+command = ""
+# judge_command = ""              # defaults to `command`; used for the adversarial judge pass
+corpus_path = ""                  # a file or directory, read locally for the grounding check
+max_rounds = 3                    # reason -> gate -> revise, up to this many times
+judge = true                      # run the LLM adversarial judge after the deterministic gate passes
+timeout_secs = 1800               # seconds per harness invocation
+# wip_channel = 0                 # if set, post per-round "gate rejected N claims, revising" here
+# promote_channel = 0             # if set (and run with --promote), a survivor is posted here
+
+# ---------------------------------------------------------------------------------------------------
 # MULTI-CHANNEL (optional). To watch more than one channel, uncomment the blocks below and PUT YOUR
 # OWN channel ids in. This overrides channel_id above.
 #
